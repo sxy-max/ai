@@ -113,6 +113,8 @@ git commit -m "deploy opencode go light client v7"
 - Build Command 使用 `npm run build`。
 - Node.js 推荐选择 22.x 或 24.x LTS（Vercel 当前默认可用 24.x）；20.16+ 仅作为兼容下限。
 
+**时长上限（重要）**：各 API 路由已显式设置 `maxDuration`——`/api/chat` 300s、`/api/fetch-url` 60s、`/api/models` 30s、`/api/search` 60s。Vercel 会按套餐强制函数时长上限，且隐式默认往往更低：Hobby 固定约 60s，长对话流式回复会被切断；Pro 需要启用 **Fluid Compute** 才支持 300s。请按你的套餐确认上限是否 ≥300s（尤其 chat 路由），否则长回复会在中途被 Vercel 中断。
+
 在 `Settings -> Environment Variables` 添加与 `.env.local` 相同的变量，并确保 Production 环境也勾选。不要创建：
 
 ```env
