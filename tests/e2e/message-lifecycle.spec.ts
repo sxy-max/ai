@@ -68,7 +68,9 @@ test("TEST5 assistant KaTeX", async ({ page }) => {
 
 test("TEST6 HTML>100 → artifact", async ({ page }) => {
   await selectModel(page, "mock-html-150");
-  await sendPrompt(page, "生成 150 行 HTML");
+  // prompt 须分类为 chat：Task Router R1 会把「生成 … html」转到确定性生成器（/api/tasks），
+  // 此处测的是聊天流内联 HTML 超 100 行自动转 artifact（mock 对任意 prompt 返回 150 行 HTML）。
+  await sendPrompt(page, "帮我看看这段 HTML 有没有问题");
   await expect(page.locator('[data-testid="artifact-card"]').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".msg-parts.assistant .msg-text")).toContainText("HTML 已生成");
   await expect(page.locator(".msg-parts.assistant .msg-text")).not.toContainText("line149");
@@ -78,7 +80,7 @@ test("TEST6 HTML>100 → artifact", async ({ page }) => {
 
 test("TEST7 刷新历史后 HTML 不回退", async ({ page }) => {
   await selectModel(page, "mock-html-150");
-  await sendPrompt(page, "生成 150 行 HTML");
+  await sendPrompt(page, "帮我看看这段 HTML 有没有问题");
   await expect(page.locator('[data-testid="artifact-card"]').first()).toBeVisible({ timeout: 30_000 });
   await page.reload();
   await expect(page.locator('[data-testid="artifact-card"]').first()).toBeVisible({ timeout: 20_000 });
