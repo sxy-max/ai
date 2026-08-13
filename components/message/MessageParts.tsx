@@ -56,6 +56,44 @@ const mdComponents = {
   pre: CodeBlock,
 };
 
+function ArtifactCard({ a }: { a: { id: string; name: string; mime: string; size: number; downloadUrl: string } }) {
+  const [expired, setExpired] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const download = async () => {
+    if (downloading || expired) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(a.downloadUrl);
+      if (!res.ok) { setExpired(true); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = a.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch {
+      setExpired(true);
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return (
+    <div className="artifact-card" data-testid="artifact-card">
+      <div className="artifact-icon">📄</div>
+      <div className="artifact-body">
+        <div className="artifact-name">{a.name}</div>
+        <div className="artifact-meta">{(a.mime.split("/")[1] || a.mime).toUpperCase()} · {fmtSize(a.size)}</div>
+      </div>
+      {expired
+        ? <span className="artifact-expired">文件已过期</span>
+        : <button className="artifact-dl" onClick={download} disabled={downloading}>{downloading ? "下载中…" : "下载"}</button>}
+    </div>
+  );
+}
+
 export default function MessageParts({ message, busy }: { message: MessageLike; busy?: boolean }) {
   const isUser = message.role === "user";
   const md = {
@@ -88,13 +126,7 @@ export default function MessageParts({ message, busy }: { message: MessageLike; 
 
       {message.artifacts?.length ? (
         <div className="artifact-list">
-          {message.artifacts.map((a) => (
-            <div className="artifact-card" data-testid="artifact-card" key={a.id}>
-              <div className="artifact-name">{a.name}</div>
-              <div className="artifact-meta">{(a.mime.split("/")[1] || a.mime).toUpperCase()} · {fmtSize(a.size)}</div>
-              <a className="artifact-dl" href={a.downloadUrl} download>下载</a>
-            </div>
-          ))}
+          {message.artifacts.map((a) => <ArtifactCard key={a.id} a={a} />)}
         </div>
       ) : null}
     </div>
