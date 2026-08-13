@@ -39,6 +39,12 @@ function sse(response, events) {
   response.end();
 }
 
+function ndjson(response, events) {
+  response.writeHead(200, { "content-type": "application/x-ndjson" });
+  for (const event of events) response.write(`${JSON.stringify(event)}\n`);
+  response.end();
+}
+
 async function freePort() {
   return await new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -52,6 +58,10 @@ async function freePort() {
 
 const providerServer = http.createServer(async (request, response) => {
   const url = new URL(request.url, "http://provider.test");
+  if (url.pathname === "/go/v1/task") {
+    // GoFileAgentAdapter 契约：NDJSON 事件流，done 结束（不带鉴权头，放 auth 断言之前）
+    return ndjson(response, [{ type: "done", exitCode: 0 }]);
+  }
   if (url.pathname.startsWith("/go/")) {
     observations.goHeaders.push(request.headers);
     assert.equal(request.headers.authorization, `Bearer ${goKey}`);
@@ -110,8 +120,7 @@ const providerServer = http.createServer(async (request, response) => {
       { type: "message_stop", data: { type: "message_stop" } }
     ]);
   }
-  if (url.pathname === "/go/v1/responses") {
-    assert.equal(request.headers["x-api-key"], undefined);
+  if (url.pathname === "/go/v1/responses") {    assert.equal(request.headers["x-api-key"], undefined);
     const payload = JSON.parse(await requestBody(request));
     observations.goResponsePayloads.push(payload);
     assert.equal(payload.model, "gpt-5.6-luna");
@@ -198,7 +207,8 @@ try {
       RATE_LIMIT_REQUESTS_PER_MINUTE: "100",
       QUOTA_DATA_DIR: tempDataDir,
       WORKSPACES_ROOT: tempDataDir,
-      ARTIFACTS_ROOT: tempDataDir
+      ARTIFACTS_ROOT: tempDataDir,
+      AGENT_URL: `http://127.0.0.1:${providerPort}/go/v1`
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
@@ -388,14 +398,43 @@ try {
   const mdText = await (await fetch(`http://127.0.0.1:${appPort}${mdTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
   assert.ok(mdText.startsWith("# "), "Markdown 应为 # 开头");
 
+  // Phase G：agent workspace —— 上传图片 → .go-ai/manifest.json + .go-ai/vision/ 视觉上下文 → agent 任务完成
+  const agentConv = "gconv";
+  const agentJob = "gjob";
+  const uploadForm = new FormData();
+  uploadForm.append("files", new File([Buffer.from(imageAttachment.dataUrl.split(",")[1], "base64")], "shot.png", { type: "image/png" }));
+  const uploadRes = await fetch(`http://127.0.0.1:${appPort}/api/files/upload?conversationId=${agentConv}&jobId=${agentJob}`, {
+    method: "POST",
+    headers: { cookie },
+    body: uploadForm
+  });
+  assert.equal(uploadRes.status, 200);
+
+  const agentTask = await fetch(`http://127.0.0.1:${appPort}/api/agent/task`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ conversationId: agentConv, jobId: agentJob, prompt: "改这个页面" })
+  });
+  assert.equal(agentTask.status, 200);
+  const agentEvents = parseNdjson(await agentTask.text());
+  assert.equal(agentEvents.at(-1).type, "status");
+  assert.equal(agentEvents.at(-1).status, "done");
+
+  const wsRoot = path.join(tempDataDir, agentConv, agentJob);
+  const manifest = JSON.parse(fs.readFileSync(path.join(wsRoot, ".go-ai", "manifest.json"), "utf8"));
+  assert.ok(manifest.files.some((f) => f.name === "shot.png"), "manifest 应登记上传图片");
+  assert.ok(fs.existsSync(path.join(wsRoot, ".go-ai", "vision", "shot.md")), "视觉上下文 .md 应落盘");
+  const visionJson = JSON.parse(fs.readFileSync(path.join(wsRoot, ".go-ai", "vision", "shot.json"), "utf8"));
+  assert.ok(visionJson.raw || visionJson.summary, "结构化视觉上下文应含字段");
+
   assert.ok(observations.goHeaders.length >= 11);
   assert.ok(observations.anthropicHeaders.length >= 4);
   assert.equal(observations.goResponsePayloads.length, 4);
   assert.equal(observations.goChatPayloads.length, 2);
   assert.equal(observations.goMessagePayloads.length, 2);
-  assert.equal(observations.visionPayloads.length, 2);
+  assert.equal(observations.visionPayloads.length, 3);
   assert.equal(observations.anthropicPayloads.length, 3);
-  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, and artifact generators (pptx/html/csv/md)");
+  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, artifact generators (pptx/html/csv/md), and agent workspace (manifest + vision context)");
 } finally {
   if (nextProcess && !nextProcess.killed) nextProcess.kill();
   await new Promise((resolve) => providerServer.close(resolve));

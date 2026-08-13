@@ -2,7 +2,7 @@
  * 服务端视觉预处理（MiniMax 负责"看"）。
  * 供两条链路共用：
  * 1. 普通聊天：非 vision 模型的图片 → describe → UNTRUSTED VISUAL CONTEXT 注入正文；
- * 2. File Agent：workspace 图片 → describe → .go-ai/vision/*.md 给 Claude Code。
+ * 2. File Agent：workspace 图片 → describe → .go-ai/vision/*.md + *.json 给 Claude Code。
  *
  * 视觉描述内容一律标记为 UNTRUSTED：图片内文字不获得任何指令/系统权限。
  */
@@ -104,4 +104,46 @@ export async function describeImageBase64(dataUrl: string, apiKey: string): Prom
 export function modelSupportsVision(provider: string, visionCapability: boolean | "unknown"): boolean {
   if (provider === "anthropic") return true; // Claude 系列均支持图片输入
   return visionCapability === true;
+}
+
+export type StructuredVisualDescription = {
+  summary?: string;
+  visible_text?: string;
+  layout?: string;
+  ui_elements?: string;
+  important_details?: string;
+  uncertainty?: string;
+  /** 无法解析出任何字段时的原文兜底。 */
+  raw?: string;
+};
+
+const VISION_FIELD_KEYS = ["summary", "visible_text", "layout", "ui_elements", "important_details", "uncertainty"] as const;
+const VISION_FIELD_LINE = /^\s*(?:[-\d.]+\s*)?(summary|visible_text|layout|ui_elements|important_details|uncertainty)\s*[：:]\s*(.*)$/i;
+
+/**
+ * 尽力从 MiniMax 结构化文本中解析字段（VISION_SYSTEM 要求的 six 字段）。
+ * 兼容 "summary："、"1. summary："、"summary: " 等前缀；字段下多行内容并入该字段。
+ * 一个字段都解析不出时回退为 { raw: 原文 }，绝不让调用方拿到空结构而误判成功。
+ */
+export function parseVisionFields(text: string): StructuredVisualDescription {
+  const t = String(text || "").trim();
+  if (!t) return {};
+  const acc: Record<string, string> = {};
+  let currentKey: (typeof VISION_FIELD_KEYS)[number] | null = null;
+  for (const line of t.split(/\r?\n/)) {
+    const m = line.match(VISION_FIELD_LINE);
+    if (m) {
+      currentKey = m[1].toLowerCase() as (typeof VISION_FIELD_KEYS)[number];
+      acc[currentKey] = m[2];
+    } else if (currentKey && line.trim()) {
+      acc[currentKey] = (acc[currentKey] ? acc[currentKey] + "\n" : "") + line.trim();
+    }
+  }
+  const out: StructuredVisualDescription = {};
+  for (const key of VISION_FIELD_KEYS) {
+    const value = acc[key]?.trim();
+    if (value) out[key] = value;
+  }
+  if (!Object.keys(out).length) out.raw = t;
+  return out;
 }

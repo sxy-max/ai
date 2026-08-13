@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { accessConfigurationError, isAuthorized } from "../../../../lib/auth";
-import fs from "node:fs";
 import path from "node:path";
-import { describeImageBase64 } from "../../../../lib/vision";
 import { artifactService } from "../../../../lib/artifacts/service";
 import type { ClientArtifact } from "../../../../lib/artifacts/types";
 import { WorkspaceManager } from "../../../../lib/workspace/service";
-import { walkWorkspace } from "../../../../lib/workspace/safety";
 import { GoFileAgentAdapter } from "../../../../lib/sandbox/dockerClaudeCode";
 import { JobStore } from "../../../../lib/agent/jobStore";
 import { runAgentJob } from "../../../../lib/agent/runner";
 import { serializeJobEvent } from "../../../../lib/job/events";
 import type { JobEvent } from "../../../../lib/job/events";
+import { scanWorkspaceVision } from "../../../../lib/vision/workspaceScanner";
+import { registerWorkspaceManifest } from "../../../../lib/files/processor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,34 +18,6 @@ export const maxDuration = 900;
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 const jobStore = new JobStore();
-
-async function describeImage(filePath: string): Promise<string> {
-  const key = process.env.OPENCODE_GO_API_KEY;
-  if (!key) return "";
-  const ext = path.extname(filePath).toLowerCase();
-  const media = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".gif" ? "image/gif" : ext === ".webp" ? "image/webp" : "image/png";
-  const data = fs.readFileSync(filePath).toString("base64");
-  return describeImageBase64(`data:${media};base64,${data}`, key);
-}
-
-/** 扫描 workspace 图片 → MiniMax 描述 → 写入 .go-ai/vision/*.md。Phase F 收归 lib/vision/workspaceScanner。 */
-async function scanWorkspaceVision(ws: WorkspaceManager): Promise<boolean> {
-  let visionMd = false;
-  try {
-    const images = walkWorkspace(ws.root).filter((f) => !f.isLink && /\.(png|jpe?g|gif|webp)$/i.test(f.relPath));
-    for (const f of images) {
-      const desc = await describeImage(f.absPath);
-      if (desc) {
-        const vDir = path.join(ws.dirs.internal, "vision");
-        fs.mkdirSync(vDir, { recursive: true });
-        const base = path.basename(f.relPath, path.extname(f.relPath));
-        fs.writeFileSync(path.join(vDir, base + ".md"), desc);
-        visionMd = true;
-      }
-    }
-  } catch {}
-  return visionMd;
-}
 
 export async function POST(request: Request) {
   const confErr = accessConfigurationError();
@@ -66,7 +37,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Workspace 创建失败" }, { status: 500 });
   }
 
-  const visionMd = await scanWorkspaceVision(ws);
+  registerWorkspaceManifest(ws);
+  const vision = await scanWorkspaceVision(ws, process.env.OPENCODE_GO_API_KEY || "");
+  const visionMd = vision.visionMd;
 
   const adapter = new GoFileAgentAdapter();
   const registerArtifact = async (name: string, content: Buffer): Promise<ClientArtifact | null> => {
@@ -99,6 +72,7 @@ export async function POST(request: Request) {
             style: body.style ? String(body.style).slice(0, 500) : "",
             skills: Array.isArray(body.skills) ? body.skills.map(String).slice(0, 20) : [],
             visionMd,
+            fileManifest: true,
             workspace: ws,
             adapter,
             store: jobStore,

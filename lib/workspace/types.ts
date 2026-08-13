@@ -52,6 +52,10 @@ export type TaskSpec = {
   visionContext?: string;
   memory?: string[];
   style?: string;
+  /** 已生成 .go-ai/vision/ 视觉描述，任务说明应引用。 */
+  visionMd?: boolean;
+  /** 已登记 .go-ai/manifest.json 文件清单，任务说明应引用。 */
+  fileManifest?: boolean;
 };
 
 export type WorkspaceErrorCode =

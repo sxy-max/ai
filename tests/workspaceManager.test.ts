@@ -104,6 +104,24 @@ test("4. 写任务说明 → task/task.json + task/task.md", () => {
   assert.ok(md.includes("视觉上下文"));
 });
 
+test("4b. 工作区上下文：visionMd / fileManifest → 引用 .go-ai/vision 与 manifest，并标记 UNTRUSTED", () => {
+  const { ws, root } = makeWs();
+  ws.writeTaskSpec({ prompt: "改这个页面", visionMd: true, fileManifest: true });
+  const md = fs.readFileSync(path.join(root, "task", "task.md"), "utf8");
+  assert.ok(md.includes("工作区上下文"));
+  assert.ok(md.includes(".go-ai/manifest.json"), "应引用文件清单");
+  assert.ok(md.includes(".go-ai/vision/"), "应引用视觉描述路径");
+  assert.ok(md.includes("UNTRUSTED"), "视觉内容应标记不可信");
+});
+
+test("4c. 未启用时不下发工作区上下文引用", () => {
+  const { ws, root } = makeWs();
+  ws.writeTaskSpec({ prompt: "仅文本任务" });
+  const md = fs.readFileSync(path.join(root, "task", "task.md"), "utf8");
+  assert.ok(!md.includes("工作区上下文"));
+  assert.ok(!md.includes(".go-ai/manifest.json"));
+});
+
 test("5. 路径穿越拒绝：../../ 逃逸 → path_traversal", () => {
   const { ws, root } = makeWs();
   expectCode(() => ws.writeInputFile("../../evil.txt", "x"), "path_traversal");

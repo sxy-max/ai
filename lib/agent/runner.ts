@@ -24,6 +24,8 @@ export type RunAgentJobInput = {
   style?: string;
   skills?: string[];
   visionMd?: boolean;
+  /** workspace 已登记 .go-ai/manifest.json（文件清单），任务说明应引用。 */
+  fileManifest?: boolean;
   taskTitle?: string;
   visionContext?: string;
   timeoutMs?: number;
@@ -64,6 +66,8 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
       memory: input.memory,
       style: input.style,
       visionContext: input.visionContext,
+      visionMd: input.visionMd,
+      fileManifest: input.fileManifest,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
