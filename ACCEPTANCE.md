@@ -18,8 +18,8 @@ Feature Build 完成标准（全部 IMPLEMENTED）。状态: [x]=已实现, [~]=
 - [x] 图片上传
 - [x] MiniMax Vision（独立链路）
 - [x] 普通图片聊天（image → MiniMax → 当前模型；本地单测 + 线上 glm+img 回归）
-- [~] 图片+文件 Agent 闭环（云端实测过 vision→file）
-- [x] 文件上传（multipart → workspace）
+- [x] 图片+文件 Agent 闭环（线上复验：参考图→MiniMax→agent 改色→artifact）
+- [x] 文件上传（multipart → workspace，含图片 png/jpg/gif/webp）
 - [x] 文件下载（Artifact）
 - [x] Artifact（create/download/expire 检测）
 - [x] HTML>100 自动文件化（transform + 接入主链）
@@ -29,10 +29,10 @@ Feature Build 完成标准（全部 IMPLEMENTED）。状态: [x]=已实现, [~]=
 - [x] ZIP 项目处理
 - [x] Artifact 历史（刷新可见，E2E TEST7 验证）
 - [x] Memory（localStorage，CRUD/启停，E2E TEST11）
-- [~] Response Style（4 预设 + 自定义，独立注入；线上注入已验证）
-- [~] 用户 Skills（SKILL.md 导入/启停）
-- [~] Skills 进入普通 Chat（相关性选择 + [USER SKILLS]；线上注入已验证）
-- [~] Skills 进入 File Agent（task skills 字段转发）
+- [x] Response Style（4 预设 + 自定义，独立注入；E2E TEST14 + 线上注入）
+- [x] 用户 Skills（SKILL.md 导入/启停，E2E TEST15）
+- [x] Skills 进入普通 Chat（相关性选择 + [USER SKILLS]；线上注入验证）
+- [x] Skills 进入 File Agent（task skills 字段转发；线上验证 agent 遵循 skill 指令）
 - [x] MCP/Tool Registry 基础（内置工具按任务解析 + /api/tools + 外部注册默认关闭，单测验证）
 - [x] 模型可用性状态（MODEL_* 友好中文，单测 + 线上验证，不暴露原始错误）
 - [x] Settings 页（主题/联网/上下文/Reasoning/温度/Max output，模型能力禁用，E2E TEST10）

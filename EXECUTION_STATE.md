@@ -1,7 +1,7 @@
 # Go AI — Execution State
 
 ## 已完成并实现（云端已部署，本地已同步）
-- **2026-08-13 两次上线**：Feature Build 大版本 + Stabilization 批次（storageSafeMessages key 修复）。线上回归确认 kimi 完整流 meta+reasoning+text+done、vision-chat、登录/模型/公网 200。
+- **2026-08-13 三次上线**：Feature Build + Stabilization + 图片上传修复（§10 闭环）。线上全量回归通过。
 - 网络基础设施：sing-box(Docker proxy) / Nginx / Docker / go-ai-net（冻结）
 - File Agent 底层：Claude Code + DeepSeek V4 Flash、cc-auth-gateway、go-ai-file-agent 容器（非root/仅workspace）、单并发+15min超时、Bash deny
 - 模型系统：7 精选模型 + KNOWN_VISION(kimi=true,glm=false) + modelPolicy(kimi temp=1) + 配额(quota.ts 持久化)
@@ -16,7 +16,7 @@
 - 代码高亮 + 复制：MessageParts rehype-highlight + CodeBlock 一键复制（修复了原 page.tsx 死代码，复制从未生效）+ hljs token 双主题调色板
 - 数学分隔符：lib/math.ts normalizeMathDelimiters（remark-math6 不识别 \(...\)/\[...\]，LaTeX 惯用转 $，跳过代码围栏）
 - 刷新恢复：reload 后自动恢复最近对话（Artifact 历史可见）
-- **E2E 13/13 全过**（12s）：reasoning 折叠/重试/多轮/user+assistant KaTeX/HTML artifact/刷新持久/代码高亮+复制/message 复制/Settings+主题/个性化记忆/旧格式迁移/移动端
+- **E2E 15/15 全过**（15s）：reasoning 折叠/重试/多轮/user+assistant KaTeX/HTML artifact/刷新持久/代码高亮+复制/message 复制/Settings+主题/个性化记忆/旧格式迁移/移动端/回复风格/Skills 导入
 - Stabilization：storageSafeMessages 补旧消息 id（修 React key 警告）、旧 schema 迁移 E2E、KaTeX 复杂公式单测、移动端布局 E2E
 - 本地：lib/message/{types,lifecycle,transform}.ts、单测 41/41 过、typecheck/build 过
 
@@ -25,20 +25,24 @@
 - 线上回归全绿：公网200 / 登录 / 模型7个 / kimi 真实流式 / **glm无视觉+图片→MiniMax→回答** / personalization+skills 注入 / File Agent 上传→任务→artifact
 
 ## 待做（按依赖排序）
-1. Stabilization 收尾：公网浏览器视觉回归（可选）、长对话上下文压测
-2. 长期 backlog：语音（Conditional/Future）、sandbox Bash（独立阶段）、真实模型差异回归
+1. 长期 backlog：公网浏览器物理视觉回归（可选；API+E2E 已覆盖）、语音（用户已指示不处理）、sandbox Bash（独立阶段）、真实模型差异细回归
 
 ## Blocked
 - 无
 
 ## 已验证
 - 云端（历史）：File Agent 三测试、ZIP、vision→file、Artifact 下载、安全 8-10、重启恢复
-- **云端（本次部署回归）**：vision-chat 预处理、真实流式聊天（kimi meta+reasoning+text+done）、**真实模型多轮上下文（kimi 两轮回忆暗号）**、personalization/skills 注入、File Agent 链路、公网 200
-- 本地：typecheck/build/单测 41/41、**E2E 13/13 全过**（reasoning/KaTeX/artifact/复制/高亮/设置/个性化/迁移/移动端）
+- **云端（本次 3 次上线回归）**：
+  - 真实模型矩阵：kimi/glm/deepseek/minimax/qwen 全 200 正常流式；gpt→MODEL_REGION_UNAVAILABLE、grok→MODEL_TEMP_UNAVAILABLE（友好中文）
+  - 真实多轮上下文（kimi 8 轮 8/8 回忆）、vision-chat（glm+img→MiniMax→回答）
+  - **Skills→File Agent**（skill 物化进 CLAUDE.md、agent 遵循标记指令）
+  - **图片+文件 Agent 闭环**（参考图→MiniMax 描述→agent 改背景色→artifact）
+  - personalization/skills 注入、公网 200
+- 本地：typecheck/build/单测 41/41、**E2E 15/15 全过**
 - E2E 基础设施根治：Next16 allowedDevOrigins + reuse=false + globalSetup 预热 + selectModel 按 value
 
 ## 未验证
-- 公网浏览器物理视觉回归（API 层已回归；UI 由 E2E mock 覆盖）、长对话上下文压测
+- 公网浏览器物理视觉回归（API 层已回归；UI 由 E2E mock 覆盖）
 
 ## Stabilization Backlog
 - ~~E2E "Target crashed"~~ 根因已修复：Next16 dev 跨源保护（allowedDevOrigins 未含 127.0.0.1 → 浏览器 Origin 头的 chunk/HMR 请求 403，app 不 hydrate；curl 无 Origin 故正常）。已加 allowedDevOrigins + globalSetup 预热
