@@ -7,13 +7,16 @@ import { artifactService } from "../../../../lib/artifacts/service";
 import type { ClientArtifact } from "../../../../lib/artifacts/types";
 import { WorkspaceManager } from "../../../../lib/workspace/service";
 import { walkWorkspace } from "../../../../lib/workspace/safety";
+import { GoFileAgentAdapter } from "../../../../lib/sandbox/dockerClaudeCode";
+import { JobStore } from "../../../../lib/agent/jobStore";
+import { runAgentJob, type JobRunEvent } from "../../../../lib/agent/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 900;
 
-const AGENT_URL = process.env.AGENT_URL || "http://go-ai-file-agent:18082";
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
+const jobStore = new JobStore();
 
 async function describeImage(filePath: string): Promise<string> {
   const key = process.env.OPENCODE_GO_API_KEY;
@@ -22,6 +25,45 @@ async function describeImage(filePath: string): Promise<string> {
   const media = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".gif" ? "image/gif" : ext === ".webp" ? "image/webp" : "image/png";
   const data = fs.readFileSync(filePath).toString("base64");
   return describeImageBase64(`data:${media};base64,${data}`, key);
+}
+
+/** 扫描 workspace 图片 → MiniMax 描述 → 写入 .go-ai/vision/*.md。Phase F 收归 lib/vision/workspaceScanner。 */
+async function scanWorkspaceVision(ws: WorkspaceManager): Promise<boolean> {
+  let visionMd = false;
+  try {
+    const images = walkWorkspace(ws.root).filter((f) => !f.isLink && /\.(png|jpe?g|gif|webp)$/i.test(f.relPath));
+    for (const f of images) {
+      const desc = await describeImage(f.absPath);
+      if (desc) {
+        const vDir = path.join(ws.dirs.internal, "vision");
+        fs.mkdirSync(vDir, { recursive: true });
+        const base = path.basename(f.relPath, path.extname(f.relPath));
+        fs.writeFileSync(path.join(vDir, base + ".md"), desc);
+        visionMd = true;
+      }
+    }
+  } catch {}
+  return visionMd;
+}
+
+/** 把 Runner 的收敛事件转回当前 wire 事件类型（前端兼容；Phase E 收敛 union 后简化）。 */
+function toWire(event: JobRunEvent): Record<string, unknown> | null {
+  switch (event.type) {
+    case "tool":
+      return { type: "agent_tool", name: event.name, ...(event.detail ? { detail: event.detail } : {}) };
+    case "text":
+      return { type: "agent_text", text: event.text };
+    case "result":
+      return { type: "agent_result", result: event.result };
+    case "artifacts":
+      return { type: "artifacts", files: event.files };
+    case "done":
+      return { type: "done", exitCode: event.exitCode ?? 0, durationMs: event.durationMs };
+    case "error":
+      return { type: "agent_error", message: event.message };
+    case "job_status":
+      return null; // 当前前端不消费；Phase G Job UI 消费
+  }
 }
 
 export async function POST(request: Request) {
@@ -42,107 +84,56 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Workspace 创建失败" }, { status: 500 });
   }
 
-  // Vision: 扫描 workspace（input/ 与遗留根目录）图片 → MiniMax 描述 → 写入 .go-ai/vision/
-  let visionMd = false;
-  try {
-    const images = walkWorkspace(ws.root).filter((f) => !f.isLink && /\.(png|jpe?g|gif|webp)$/i.test(f.relPath));
-    for (const f of images) {
-      const desc = await describeImage(f.absPath);
-      if (desc) {
-        const vDir = path.join(ws.dirs.internal, "vision");
-        fs.mkdirSync(vDir, { recursive: true });
-        const base = path.basename(f.relPath, path.extname(f.relPath));
-        fs.writeFileSync(path.join(vDir, base + ".md"), desc);
-        visionMd = true;
-      }
+  const visionMd = await scanWorkspaceVision(ws);
+
+  const adapter = new GoFileAgentAdapter();
+  const registerArtifact = async (name: string, content: Buffer): Promise<ClientArtifact | null> => {
+    try {
+      const artifact = artifactService.createArtifact({
+        filename: name,
+        content,
+        source: "file_agent",
+        jobId: job,
+        metadata: { workspace: `${conv}/${job}` },
+      });
+      return artifactService.serializeArtifactForClient(artifact);
+    } catch {
+      return null;
     }
-  } catch {}
-
-  const task = {
-    conversationId: conv,
-    jobId: job,
-    prompt: String(body.prompt).slice(0, 8000),
-    maxTurns: Number(body.maxTurns) || 15,
-    model: "deepseek-v4-flash",
-    gatewayBaseUrl: "http://cc-auth-gateway:18081",
-    gatewayToken: "placeholder-token",
-    visionMd,
-    memory: Array.isArray(body.memory) ? body.memory.map(String).slice(0, 20) : [],
-    style: body.style ? String(body.style).slice(0, 500) : "",
-    skills: Array.isArray(body.skills) ? body.skills.map(String).slice(0, 20) : [],
   };
-
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${AGENT_URL}/task`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(task),
-      cache: "no-store",
-    });
-  } catch {
-    return NextResponse.json({ error: "文件处理服务不可用" }, { status: 502 });
-  }
-  if (!upstream.ok || !upstream.body) {
-    const text = await upstream.text().catch(() => "");
-    return NextResponse.json({ error: text || `文件处理失败(${upstream.status})` }, { status: upstream.status });
-  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const reader = upstream.body!.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
       const enc = (s: string) => controller.enqueue(new TextEncoder().encode(s));
+      const emitWire = (event: JobRunEvent) => {
+        const line = toWire(event);
+        if (line) enc(JSON.stringify(line) + "\n");
+      };
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() || "";
-          for (const line of lines) {
-            const t = line.trim();
-            if (!t) continue;
-            let ev: any;
-            try {
-              ev = JSON.parse(t);
-            } catch {
-              enc(t + "\n");
-              continue;
-            }
-            if (ev.type === "artifacts" && Array.isArray(ev.files)) {
-              const items: ClientArtifact[] = [];
-              for (const f of ev.files) {
-                const src = path.join(ws.root, String(f.name || ""));
-                if (!src.startsWith(ws.root + path.sep) || !fs.existsSync(src)) continue;
-                try {
-                  const a = artifactService.createArtifact({
-                    filename: String(f.name || "download"),
-                    content: fs.readFileSync(src),
-                    source: "file_agent",
-                    jobId: job,
-                    metadata: { workspace: `${conv}/${job}` },
-                  });
-                  items.push(artifactService.serializeArtifactForClient(a));
-                } catch {}
-              }
-              enc(JSON.stringify({ type: "artifacts", files: items }) + "\n");
-            } else {
-              enc(t + "\n");
-            }
-          }
-        }
-        controller.close();
-      } catch {
-        controller.error("agent stream failed");
+        await runAgentJob(
+          {
+            conversationId: conv,
+            jobId: job,
+            prompt: String(body.prompt).slice(0, 8000),
+            maxTurns: Number(body.maxTurns) || 15,
+            memory: Array.isArray(body.memory) ? body.memory.map(String).slice(0, 20) : [],
+            style: body.style ? String(body.style).slice(0, 500) : "",
+            skills: Array.isArray(body.skills) ? body.skills.map(String).slice(0, 20) : [],
+            visionMd,
+            workspace: ws,
+            adapter,
+            store: jobStore,
+            registerArtifact,
+          },
+          emitWire
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        enc(JSON.stringify({ type: "agent_error", message: message || "文件处理失败" }) + "\n");
       }
+      controller.close();
     },
-    cancel() {
-      try {
-        upstream.body?.cancel();
-      } catch {}
-    },
+    cancel() {},
   });
   return new Response(stream, {
     headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-cache, no-transform" },

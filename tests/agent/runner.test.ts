@@ -1,0 +1,135 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { WorkspaceManager } from "../../lib/workspace/service";
+import { JobStore } from "../../lib/agent/jobStore";
+import { runAgentJob } from "../../lib/agent/runner";
+import type { SandboxRuntimeAdapter, SandboxRunEvent, SandboxRunRequest, SandboxRunResult } from "../../lib/sandbox/adapter";
+import type { ClientArtifact } from "../../lib/artifacts/types";
+
+const FAKE_ARTIFACT: ClientArtifact = { id: "a1", kind: "markdown", name: "report.md", mime: "text/markdown", size: 5, status: "ready", downloadUrl: "/api/artifacts/a1" };
+
+function fakeAdapter(opts: { events?: SandboxRunEvent[]; result?: SandboxRunResult; onRequest?: (request: SandboxRunRequest) => void }): SandboxRuntimeAdapter {
+  return {
+    async run(request, onEvent) {
+      opts.onRequest?.(request);
+      for (const event of opts.events || []) await onEvent(event);
+      return opts.result ?? { ok: true, exitCode: 0 };
+    },
+  };
+}
+
+function makeWs() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "go-ai-run-"));
+  const ws = new WorkspaceManager(root).createWorkspace();
+  return { ws, root };
+}
+
+test("1. 正常流：任务说明写入、事件透传、artifacts 登记、job done", async () => {
+  const { ws } = makeWs();
+  fs.writeFileSync(path.join(ws.dirs.output, "report.md"), "# ok");
+  const store = new JobStore();
+  const forwarded: string[] = [];
+  const registered: { name: string; content: Buffer }[] = [];
+
+  const adapter = fakeAdapter({
+    events: [
+      { type: "tool", name: "Read" },
+      { type: "text", text: "正在处理" },
+      { type: "artifacts", files: [{ name: "output/report.md" }] },
+      { type: "done", exitCode: 0 },
+    ],
+  });
+
+  const outcome = await runAgentJob(
+    {
+      conversationId: "conv1",
+      jobId: "job1",
+      prompt: "把报告改成中文",
+      style: "简洁",
+      workspace: ws,
+      adapter,
+      store,
+      registerArtifact: async (name, content) => {
+        registered.push({ name, content });
+        return { ...FAKE_ARTIFACT, name };
+      },
+    },
+    (event) => forwarded.push(event.type)
+  );
+
+  assert.equal(outcome.status, "done");
+  assert.equal(outcome.artifactCount, 1);
+  assert.equal(store.get("job1")?.status, "done");
+  assert.equal(store.get("job1")?.artifactCount, 1);
+  // 事件顺序：queued/running → tool/text/artifacts/done → done(job_status)
+  assert.deepEqual(forwarded, ["job_status", "job_status", "tool", "text", "artifacts", "done", "job_status"]);
+  // 任务说明写入 workspace
+  const taskMd = fs.readFileSync(path.join(ws.dirs.task, "task.md"), "utf8");
+  assert.ok(taskMd.includes("把报告改成中文"));
+  assert.ok(taskMd.includes("简洁"));
+  // registerArtifact 收到文件内容
+  assert.equal(registered[0].name, "output/report.md");
+  assert.equal(registered[0].content.toString("utf8"), "# ok");
+});
+
+test("2. 失败（超时）：job failed、保留 error、仍发出错误事件", async () => {
+  const { ws } = makeWs();
+  const store = new JobStore();
+  const forwarded: string[] = [];
+  const adapter = fakeAdapter({
+    events: [{ type: "error", message: "沙箱执行超时" }],
+    result: { ok: false, error: "sandbox_timeout", partial: false },
+  });
+
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job2", prompt: "x", workspace: ws, adapter, store, registerArtifact: async () => null },
+    (event) => forwarded.push(event.type)
+  );
+
+  assert.equal(outcome.status, "failed");
+  assert.ok(!outcome.result.ok);
+  if (!outcome.result.ok) assert.equal(outcome.result.error, "sandbox_timeout");
+  assert.equal(store.get("job2")?.status, "failed");
+  assert.equal(store.get("job2")?.error, "sandbox_timeout");
+  assert.ok(forwarded.includes("error"));
+  assert.equal(forwarded.at(-1), "job_status");
+});
+
+test("3. adapter 抛异常 → 也标记 failed 而非崩掉", async () => {
+  const { ws } = makeWs();
+  const store = new JobStore();
+  const adapter: SandboxRuntimeAdapter = {
+    async run() {
+      throw new Error("adapter exploded");
+    },
+  };
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job3", prompt: "x", workspace: ws, adapter, store, registerArtifact: async () => null },
+    () => {}
+  );
+  assert.equal(outcome.status, "failed");
+  assert.equal(store.get("job3")?.status, "failed");
+});
+
+test("4. artifacts 逃逸路径（../）不登记；缺失文件跳过", async () => {
+  const { ws } = makeWs();
+  const store = new JobStore();
+  const registered: string[] = [];
+  const adapter = fakeAdapter({
+    events: [
+      { type: "artifacts", files: [{ name: "../evil.txt" }, { name: "output/missing.md" }] },
+      { type: "done", exitCode: 0 },
+    ],
+  });
+
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job4", prompt: "x", workspace: ws, adapter, store, registerArtifact: async (name) => (registered.push(name), { ...FAKE_ARTIFACT, name }) },
+    () => {}
+  );
+  assert.equal(outcome.status, "done");
+  assert.equal(outcome.artifactCount, 0);
+  assert.deepEqual(registered, []);
+});
