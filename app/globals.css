@@ -37,6 +37,14 @@
   --quote-border: #464e60;
   --shadow: rgba(0,0,0,.35);
   --scrim: rgba(0,0,0,.45);
+  --hl-keyword: #c792ea;
+  --hl-string: #a5e075;
+  --hl-number: #f78c6c;
+  --hl-comment: #7a8395;
+  --hl-function: #82aaff;
+  --hl-type: #ffcb6b;
+  --hl-attr: #ff869a;
+  --hl-variable: #e6e9f0;
   color-scheme: dark;
 }
 
@@ -76,6 +84,14 @@
   --quote-border: #c9cfda;
   --shadow: rgba(20,24,38,.12);
   --scrim: rgba(30,35,48,.32);
+  --hl-keyword: #9c27b0;
+  --hl-string: #2e7d32;
+  --hl-number: #bf360c;
+  --hl-comment: #8a93a5;
+  --hl-function: #1a3fb7;
+  --hl-type: #9a6a00;
+  --hl-attr: #c2185b;
+  --hl-variable: #333a45;
   color-scheme: light;
 }
 
@@ -110,6 +126,20 @@
 .bubble pre{overflow:auto;margin:1em 0;padding:14px 16px;background:var(--code-bg);border:1px solid var(--border-3);border-radius:12px;line-height:1.6}
 .bubble pre code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.86em;background:none;padding:0;border:0;color:var(--text-2)}
 .bubble :not(pre)>code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.86em;background:var(--hover-2);border:1px solid var(--border);padding:2px 6px;border-radius:6px;color:var(--link)}
+/* 代码语法高亮 token 调色板（rehype-highlight，跟随主题） */
+.hljs-comment,.hljs-quote{color:var(--hl-comment);font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-doctag,.hljs-built_in,.hljs-meta .hljs-keyword{color:var(--hl-keyword)}
+.hljs-string,.hljs-regexp,.hljs-addition,.hljs-char.escape_{color:var(--hl-string)}
+.hljs-number,.hljs-symbol,.hljs-bullet{color:var(--hl-number)}
+.hljs-title,.hljs-title.function_,.hljs-section,.hljs-function .hljs-title{color:var(--hl-function)}
+.hljs-title.class_,.hljs-type,.hljs-name,.hljs-params{color:var(--hl-type)}
+.hljs-attr,.hljs-attribute,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-tag{color:var(--hl-attr)}
+.hljs-variable,.hljs-template-variable,.hljs-property,.hljs-title.function_{color:var(--hl-variable)}
+.hljs-deletion{color:var(--danger)}
+.hljs-meta{color:var(--hl-comment)}
+.hljs-link{color:var(--link)}
+.hljs-emphasis{font-style:italic}
+.hljs-strong{font-weight:700}
 /* 公式: 深浅自适应 + 块公式横向滚动 + streaming 安全 */
 .bubble .katex{color:var(--katex)}
 .reasoning .katex{color:var(--katex-dim)}

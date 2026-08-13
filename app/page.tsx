@@ -1,17 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import MessageParts from "../components/message/MessageParts";
 import PersonalizationPanel from "../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
 import { transformAllHtml } from "../lib/message/transform";
 import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, selectRelevantSkills, type PersonalizationProfile } from "../lib/personalization";
 import { isFileTaskPrompt, resolveTaskTools } from "../lib/toolRegistry";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
 async function copyText(text: string) {
   try {
     if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
@@ -24,14 +19,6 @@ async function copyText(text: string) {
   document.body.removeChild(ta);
 }
 
-function CodeBlock(props: any) {
-  const ref = useRef<HTMLPreElement>(null);
-  const [copied, setCopied] = useState(false);
-  const onCopy = async () => { await copyText(ref.current?.textContent || ""); setCopied(true); setTimeout(() => setCopied(false), 1500); };
-  return <div className="code-wrap"><button className="code-copy" onClick={onCopy}>{copied ? "已复制 ✓" : "复制"}</button><pre {...props} ref={ref} /></div>;
-}
-
-const mdComponents = { a: (props: any) => <a {...props} target="_blank" rel="noreferrer" />, pre: CodeBlock };
 
 type Provider = "opencode-go" | "anthropic";
 type Attachment = { id: string; name: string; mime: string; kind: "text" | "image"; text?: string; dataUrl?: string; originalChars?: number; contextChars?: number; compressed?: boolean };

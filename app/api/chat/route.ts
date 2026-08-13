@@ -429,6 +429,9 @@ function mockStream(model: string): Response {
   }
   if (model === "mock-reasoning-final") evs.push(enc({ type: "text", value: "最终回答：临界角速度满足平衡条件。" }));
   if (model === "mock-lifecycle" || model === "mock-text") evs.push(enc({ type: "text", value: "最终回答：你好" }));
+  if (model === "mock-code") {
+    evs.push(enc({ type: "text", value: "```ts\nconst count: number = 0;\n// 一段注释\nfunction add(a: number, b: number) {\n  return a + b;\n}\n```" }));
+  }
   if (model === "mock-katex") {
     evs.push(enc({ type: "text", value: "由受力分析可得块公式：\n\n$$\n\\Omega=\\sqrt{\\omega^2-\\frac{g^2}{R^2\\omega^2}}\n$$\n" }));
   }

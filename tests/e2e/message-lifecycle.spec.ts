@@ -77,3 +77,27 @@ test("TEST7 刷新历史后 HTML 不回退", async ({ page }) => {
   await expect(page.locator('[data-testid="artifact-card"]').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".msg-parts.assistant .msg-text")).not.toContainText("line149");
 });
+
+test("TEST8 代码块高亮 + 一键复制", async ({ page }) => {
+  await selectModel(page, "mock-code");
+  await sendPrompt(page, "输出一段 TS 代码");
+  const codeWrap = page.locator(".msg-parts.assistant .code-wrap").first();
+  await expect(codeWrap).toBeVisible({ timeout: 20_000 });
+  // 语法高亮已应用（hljs token）
+  await expect(codeWrap.locator(".hljs-keyword").first()).toBeVisible();
+  await expect(codeWrap.locator(".hljs-comment").first()).toBeVisible();
+  // 一键复制代码并给出成功反馈
+  await codeWrap.locator(".code-copy").click();
+  await expect(codeWrap.locator(".code-copy")).toContainText("已复制 ✓");
+  const copied = await page.evaluate(() => navigator.clipboard?.readText?.() ?? "");
+  if (copied) expect(copied).toContain("function add");
+});
+
+test("TEST9 message 一键复制", async ({ page }) => {
+  await selectModel(page, "mock-reasoning-final");
+  await sendPrompt(page, "物理题");
+  await expect(page.locator(".msg-parts.assistant .msg-text")).toContainText("最终回答", { timeout: 20_000 });
+  const copyBtn = page.locator(".msg-copy").first();
+  await copyBtn.click();
+  await expect(copyBtn).toContainText("已复制 ✓");
+});

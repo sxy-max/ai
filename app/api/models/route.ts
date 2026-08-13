@@ -59,7 +59,7 @@ export async function GET(request: Request) {
 
   const claudeFeatured = featuredAnthropicModelIds(anthropicModels);
   const E2E = process.env.E2E_MODE === "1" && process.env.NODE_ENV !== "production";
-  const MOCK_MODELS = ["mock-lifecycle", "mock-reasoning-final", "mock-reasoning-only", "mock-html-150", "mock-katex"];
+  const MOCK_MODELS = ["mock-lifecycle", "mock-reasoning-final", "mock-reasoning-only", "mock-html-150", "mock-katex", "mock-code"];
   const featuredIds = featuredModelIds(claudeFeatured);
   const featured = new Set(featuredIds);
   const allowOther = allowOtherModels();
