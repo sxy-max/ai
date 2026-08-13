@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MessageParts from "../components/message/MessageParts";
 import PersonalizationPanel from "../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
-import { transformAllHtml } from "../lib/message/transform";
+import { transformContent } from "../lib/artifacts/transform";
 import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, selectRelevantSkills, type PersonalizationProfile } from "../lib/personalization";
 import { isFileTaskPrompt, resolveTaskTools } from "../lib/toolRegistry";
 import { classifyTask } from "../lib/taskRouter";
@@ -25,7 +25,7 @@ type Provider = "opencode-go" | "anthropic";
 type Attachment = { id: string; name: string; mime: string; kind: "text" | "image"; text?: string; dataUrl?: string; originalChars?: number; contextChars?: number; compressed?: boolean };
 type WebSource = { title: string; url: string; summary?: string; content?: string };
 type Message = { id: string; role: "user" | "assistant"; content: string; status?: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; visionUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[]; artifacts?: Artifact[] };
-type Artifact = { id: string; name: string; mime: string; size: number; downloadUrl: string };
+type Artifact = { id: string; name: string; mime: string; size: number; downloadUrl: string; kind?: string; status?: string };
 type FileTaskInfo = { id: string; file: File };
 
 function toolLabel(n: string) {
@@ -388,20 +388,19 @@ export default function Home() {
     const out = messages.slice();
     const last = out[out.length - 1];
     if (!last || last.role !== "assistant") return out;
-    const res = transformAllHtml(last.content, explicit);
-    if (!res.artifacts.length) return out;
-    let artifacts = last.artifacts || [];
+    const res = transformContent(last.content, explicit);
+    if (!res.requests.length) return out;
     const created: Artifact[] = [];
-    for (const a of res.artifacts) {
+    for (const r of res.requests) {
       try {
-        const r = await fetch("/api/artifacts/create", {
+        const resp = await fetch("/api/artifacts/create", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: a.name, mime: a.mime, content: a.content }),
+          body: JSON.stringify({ filename: r.filename, mime: r.mime, kind: r.kind, content: r.content, messageId: last.id, source: "chat" }),
         });
-        if (r.ok) created.push(await r.json());
+        if (resp.ok) created.push(await resp.json());
       } catch {}
     }
-    artifacts = [...created, ...artifacts];
+    const artifacts = [...created, ...(last.artifacts || [])];
     return [...out.slice(0, -1), { ...last, content: res.content, artifacts }];
   }
 
@@ -523,7 +522,10 @@ export default function Home() {
     if (intent && intent.type === "artifact" && intent.artifactKind !== "html") {
       setBusy(true); setError("");
       const label = intent.artifactKind && intent.artifactKind !== "unknown" ? `（${artifactKindLabel(intent.artifactKind)}）` : "";
-      const assistant: Message = { id: uid(), role: "assistant", content: `已识别为文件生成任务${label}：文件生成器将在下一阶段接入，本阶段请先用普通对话描述内容需求。` };
+      const placeholder = intent.artifactKind === "pptx"
+        ? "已识别为 PPTX Artifact 任务，PPTX 生成器将在下一阶段接入。"
+        : `已识别为文件生成任务${label}：文件生成器将在下一阶段接入，本阶段请先用普通对话描述内容需求。`;
+      const assistant: Message = { id: uid(), role: "assistant", content: placeholder };
       setMessages((prev) => [...prev, assistant]);
       setBusy(false);
       return;

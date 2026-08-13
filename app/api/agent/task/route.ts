@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { accessConfigurationError, isAuthorized } from "../../../../lib/auth";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describeImageBase64 } from "../../../../lib/vision";
+import { artifactService } from "../../../../lib/artifacts/service";
+import type { ClientArtifact } from "../../../../lib/artifacts/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,21 +12,6 @@ export const maxDuration = 900;
 
 const AGENT_URL = process.env.AGENT_URL || "http://go-ai-file-agent:18082";
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
-const ARTIFACTS_ROOT = process.env.ARTIFACTS_ROOT || "/data/artifacts";
-
-function loadRegistry(): Record<string, any> {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(ARTIFACTS_ROOT, "manifest.json"), "utf8"));
-  } catch {
-    return {};
-  }
-}
-function saveRegistry(r: Record<string, any>) {
-  try {
-    fs.mkdirSync(ARTIFACTS_ROOT, { recursive: true });
-    fs.writeFileSync(path.join(ARTIFACTS_ROOT, "manifest.json"), JSON.stringify(r));
-  } catch {}
-}
 
 async function describeImage(filePath: string): Promise<string> {
   const key = process.env.OPENCODE_GO_API_KEY;
@@ -98,7 +84,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: text || `文件处理失败(${upstream.status})` }, { status: upstream.status });
   }
 
-  const registry = loadRegistry();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const reader = upstream.body!.getReader();
@@ -123,20 +108,22 @@ export async function POST(request: Request) {
               continue;
             }
             if (ev.type === "artifacts" && Array.isArray(ev.files)) {
-              const ids: { id: string; name: string; mime: string; size: number }[] = [];
+              const items: ClientArtifact[] = [];
               for (const f of ev.files) {
                 const src = path.join(ws, String(f.name || ""));
                 if (!src.startsWith(ws + path.sep) || !fs.existsSync(src)) continue;
-                const aid = randomUUID();
                 try {
-                  fs.mkdirSync(ARTIFACTS_ROOT, { recursive: true });
-                  fs.copyFileSync(src, path.join(ARTIFACTS_ROOT, aid));
-                  registry[aid] = { name: f.name, mime: f.mime || "application/octet-stream", size: Number(f.size) || 0, createdAt: Date.now() };
-                  ids.push({ id: aid, name: f.name, mime: f.mime || "application/octet-stream", size: Number(f.size) || 0 });
+                  const a = artifactService.createArtifact({
+                    filename: String(f.name || "download"),
+                    content: fs.readFileSync(src),
+                    source: "file_agent",
+                    jobId: job,
+                    metadata: { workspace: `${conv}/${job}` },
+                  });
+                  items.push(artifactService.serializeArtifactForClient(a));
                 } catch {}
               }
-              saveRegistry(registry);
-              enc(JSON.stringify({ type: "artifacts", files: ids }) + "\n");
+              enc(JSON.stringify({ type: "artifacts", files: items }) + "\n");
             } else {
               enc(t + "\n");
             }
