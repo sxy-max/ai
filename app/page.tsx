@@ -8,6 +8,7 @@ import MessageParts from "../components/message/MessageParts";
 import PersonalizationPanel from "../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
 import { transformAllHtml } from "../lib/message/transform";
+import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, type PersonalizationProfile } from "../lib/personalization";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 async function copyText(text: string) {
@@ -215,6 +216,7 @@ export default function Home() {
   const [maxOutputTokens, setMaxOutputTokens] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
   const [theme, setTheme] = useState<ThemeMode>("system");
+  const [profile, setProfile] = useState<PersonalizationProfile>(defaultProfile);
   const [view, setView] = useState<"chat" | "settings" | "personalization">("chat");
   const [error, setError] = useState("");
   const [sidebar, setSidebar] = useState(false);
@@ -261,6 +263,7 @@ export default function Home() {
       if (["off", "auto", "low", "medium", "high"].includes(s.reasoningEffort)) setReasoningEffort(s.reasoningEffort);
       if (["system", "light", "dark"].includes(s.theme)) setTheme(s.theme);
     } catch {}
+    setProfile(loadProfile());
     setStorageReady(true);
     void authenticate(undefined, true);
   }, []);
@@ -268,6 +271,7 @@ export default function Home() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, searchBusy]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)); } catch {} }, [conversations, storageReady]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme })); } catch {} }, [searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme, storageReady]);
+  useEffect(() => { if (!storageReady) return; saveProfile(profile); }, [profile, storageReady]);
 
   // 自动主题：system 跟随系统；light/dark 手动覆盖。无硬编码时间点。
   useEffect(() => {
@@ -405,10 +409,11 @@ export default function Home() {
     const up = await fetch(`/api/files/upload?conversationId=${convId}&jobId=${jobId}`, { method: "POST", body: fd });
     if (!up.ok) throw new Error((await up.text()).slice(0, 200) || "上传失败");
 
+    const pz = buildPersonalizationContext(profile);
     const res = await fetch("/api/agent/task", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ conversationId: convId, jobId, prompt }),
+      body: JSON.stringify({ conversationId: convId, jobId, prompt, memory: pz.memory ? pz.memory.split("\n").map((s) => s.replace(/^- /, "").trim()).filter(Boolean) : [], style: pz.style, skills: [] }),
     });
     if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 200) || "文件处理失败");
 
@@ -565,6 +570,7 @@ export default function Home() {
           (attachment.kind === "image" && typeof attachment.dataUrl === "string")
         ).map(({ name, mime, kind, text, dataUrl }) => ({ name, mime, kind, text, dataUrl }))
       }));
+      const pz = buildPersonalizationContext(profile);
       const requestBody = JSON.stringify({
         provider: activeModel.provider,
         model: activeModel.id,
@@ -572,7 +578,8 @@ export default function Home() {
         messages: apiMessages,
         webContext: external.webContext,
         urlContext: external.urlContext,
-        options
+        options,
+        personalization: pz
       });
       if (new Blob([requestBody]).size > MAX_CLIENT_REQUEST_BYTES) throw new Error("当前对话和附件超过 3.3 MB，请新建对话或减少文件/图片");
       const res = await fetch("/api/chat", {
@@ -695,7 +702,7 @@ export default function Home() {
       ) : (
         <div className="settings-view">
           <div className="view-head"><h2>个性化</h2><p>记忆 · 回复风格 · 我的 Skills。按浏览器本地保存，不共享服务器 Profile。</p></div>
-          <PersonalizationPanel />
+          <PersonalizationPanel profile={profile} onChange={setProfile} />
         </div>
       )}
     </section>

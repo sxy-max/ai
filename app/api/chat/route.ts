@@ -7,6 +7,7 @@ import { detectSkill, skillInstruction } from "../../../lib/skills";
 import { effectiveTemperature } from "../../../lib/modelPolicy";
 import { quotaCheck, quotaRecordSuccess } from "../../../lib/quota";
 import { buildVisualContextBlock, describeImageBase64, modelSupportsVision, type VisualDescription } from "../../../lib/vision";
+import { personalizationSystemText } from "../../../lib/personalization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ type Body = {
   webContext?: string;
   urlContext?: string;
   options?: ChatOptions;
+  personalization?: { memory?: string; style?: string };
 };
 type StreamEvent = { type: "meta" | "text" | "reasoning" | "error" | "done"; value?: string; protocol?: Protocol; provider?: Provider; stopReason?: string };
 
@@ -175,6 +177,18 @@ function validateBody(value: unknown): Body {
     };
   }
 
+  let personalization: Body["personalization"];
+  if (value.personalization != null) {
+    if (!isRecord(value.personalization)) throw new HttpError(400, "Invalid personalization");
+    const { memory, style } = value.personalization;
+    if (memory != null && typeof memory !== "string") throw new HttpError(400, "Invalid personalization memory");
+    if (style != null && typeof style !== "string") throw new HttpError(400, "Invalid personalization style");
+    personalization = {
+      ...(typeof memory === "string" && memory.trim() ? { memory: memory.slice(0, 8000) } : {}),
+      ...(typeof style === "string" && style.trim() ? { style: style.slice(0, 8000) } : {})
+    };
+  }
+
   return {
     provider: value.provider,
     model: value.model,
@@ -182,7 +196,8 @@ function validateBody(value: unknown): Body {
     messages,
     webContext,
     urlContext,
-    options
+    options,
+    personalization
   };
 }
 
@@ -209,7 +224,7 @@ function addReasoningInstruction(messages: unknown[], effort: string) {
   return instruction ? [{ role: "system", content: instruction }, ...messages] : messages;
 }
 
-function chatPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
+function chatPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "", personalizationText = "") {
   const opts = normalizedOptions(options);
   let mapped: unknown[] = messages.map((message) => {
     const images = (message.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl);
@@ -223,7 +238,7 @@ function chatPayload(model: string, messages: ClientMessage[], options?: ChatOpt
     };
     return { role: message.role, content: text };
   });
-  mapped.unshift({ role: "system", content: [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION].filter(Boolean).join("\n\n") });
+  mapped.unshift({ role: "system", content: [process.env.SYSTEM_PROMPT || "", personalizationText, skillText, EXTERNAL_DATA_INSTRUCTION].filter(Boolean).join("\n\n") });
   mapped = addReasoningInstruction(mapped, opts.reasoningEffort);
   const payload: Record<string, unknown> = { model, stream: true, messages: mapped, max_tokens: opts.maxOutputTokens };
   const temp = effectiveTemperature(model, options?.temperature); if (temp !== undefined) payload.temperature = temp;
@@ -245,9 +260,9 @@ function messageBlocks(message: ClientMessage) {
   return content;
 }
 
-function messagesPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
+function messagesPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "", personalizationText = "") {
   const opts = normalizedOptions(options);
-  const system = [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
+  const system = [process.env.SYSTEM_PROMPT || "", personalizationText, skillText, EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
   const payload: Record<string, unknown> = {
     model,
     stream: true,
@@ -263,10 +278,10 @@ function supportsModernAnthropicThinking(model: string) {
   return /^claude-(?:sonnet|opus)-(?:5(?:$|-)|4-[6-9](?:$|-))/i.test(model);
 }
 
-function anthropicPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
+function anthropicPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "", personalizationText = "") {
   const opts = normalizedOptions(options);
   const modernThinking = supportsModernAnthropicThinking(model);
-  const system = [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION];
+  const system = [process.env.SYSTEM_PROMPT || "", personalizationText, skillText, EXTERNAL_DATA_INSTRUCTION];
   if (!modernThinking) system.push(reasoningInstruction(opts.reasoningEffort));
   const payload: Record<string, unknown> = {
     model,
@@ -287,7 +302,7 @@ function anthropicPayload(model: string, messages: ClientMessage[], options?: Ch
   return payload;
 }
 
-function responsesPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
+function responsesPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "", personalizationText = "") {
   const opts = normalizedOptions(options);
   const input = messages.map((message) => {
     const content: Array<Record<string, unknown>> = [];
@@ -301,18 +316,18 @@ function responsesPayload(model: string, messages: ClientMessage[], options?: Ch
     return { role: message.role, content };
   });
   const payload: Record<string, unknown> = { model, stream: true, input, max_output_tokens: opts.maxOutputTokens };
-  const instructions = [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
+  const instructions = [process.env.SYSTEM_PROMPT || "", personalizationText, skillText, EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
   if (instructions.length) payload.instructions = instructions.join("\n\n");
   if (opts.temperature !== undefined) payload.temperature = opts.temperature;
   if (!["off", "auto"].includes(opts.reasoningEffort)) payload.reasoning = { effort: opts.reasoningEffort, summary: "auto" };
   return payload;
 }
 
-function buildPayload(protocol: Protocol, model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
-  if (protocol === "chat") return chatPayload(model, messages, options, skillText);
-  if (protocol === "messages") return messagesPayload(model, messages, options, skillText);
-  if (protocol === "anthropic") return anthropicPayload(model, messages, options, skillText);
-  return responsesPayload(model, messages, options, skillText);
+function buildPayload(protocol: Protocol, model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "", personalizationText = "") {
+  if (protocol === "chat") return chatPayload(model, messages, options, skillText, personalizationText);
+  if (protocol === "messages") return messagesPayload(model, messages, options, skillText, personalizationText);
+  if (protocol === "anthropic") return anthropicPayload(model, messages, options, skillText, personalizationText);
+  return responsesPayload(model, messages, options, skillText, personalizationText);
 }
 
 function deltas(protocol: Protocol, data: Record<string, any>): { text?: string; reasoning?: string; stopReason?: string; error?: string; terminal?: boolean } {
@@ -440,6 +455,7 @@ export async function POST(request: Request) {
   const protocol = protocolForModel(body.model, body.provider);
   if (!protocol) return errorResponse(`Unknown protocol route for model: ${body.model}`, 400);
   const skillText = skillInstruction(detectSkill(body.messages));
+  const personalizationText = personalizationSystemText({ memory: body.personalization?.memory || "", style: body.personalization?.style || "" });
   const key = body.provider === "anthropic" ? process.env.ANTHROPIC_API_KEY : process.env.OPENCODE_GO_API_KEY;
   if (!key) return errorResponse(body.provider === "anthropic" ? "Anthropic is not configured" : "OpenCode Go is not configured", 503);
 
@@ -486,7 +502,7 @@ export async function POST(request: Request) {
     upstream = await fetch(endpointForProtocol(protocol), {
       method: "POST",
       headers,
-      body: JSON.stringify(buildPayload(protocol, body.model, routedMessages, body.options, skillText)),
+      body: JSON.stringify(buildPayload(protocol, body.model, routedMessages, body.options, skillText, personalizationText)),
       signal: upstreamAbort.signal,
       cache: "no-store"
     });
