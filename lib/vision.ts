@@ -86,7 +86,7 @@ export async function describeImageBase64(dataUrl: string, apiKey: string): Prom
   try {
     const resp = await fetch(`${API_ROOT}/messages`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}`, "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),

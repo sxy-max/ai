@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 
 const projectRoot = new URL("..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
+// 隔离 quota/workspace 状态，避免集成测试反复运行耗尽私有额度或污染 /data。
+const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "go-ai-int-"));
 const goKey = "go-test-key-never-send-to-anthropic";
 const anthropicKey = "anthropic-test-key-never-send-to-go";
 const accessPassword = "integration-access-password";
@@ -13,6 +18,7 @@ const observations = {
   goResponsePayloads: [],
   goChatPayloads: [],
   goMessagePayloads: [],
+  visionPayloads: [],
   anthropicPayloads: []
 };
 
@@ -89,6 +95,12 @@ const providerServer = http.createServer(async (request, response) => {
     assert.equal(request.headers["x-api-key"], goKey);
     assert.equal(request.headers["anthropic-version"], "2023-06-01");
     const payload = JSON.parse(await requestBody(request));
+    // 非 vision 模型的图片经 describeImageBase64 走视觉预处理（minimax-m3），返回 JSON 描述
+    if (payload.model === "minimax-m3") {
+      observations.visionPayloads.push(payload);
+      assert.deepEqual(payload.messages.at(-1).content.map((part) => part.type), ["image", "text"]);
+      return json(response, 200, { content: [{ type: "text", text: "视觉描述：图片中有蓝色按钮，写着 Go AI。" }] });
+    }
     observations.goMessagePayloads.push(payload);
     assert.equal(payload.model, "qwen3.8-max");
     return sse(response, [
@@ -183,7 +195,10 @@ try {
       ALLOW_OTHER_MODELS: "false",
       FEATURED_MODELS: "gpt-5.6-luna,grok-4.5,qwen3.8-max,anthropic/claude-sonnet-5",
       ANTHROPIC_FEATURED_MODELS: "",
-      RATE_LIMIT_REQUESTS_PER_MINUTE: "100"
+      RATE_LIMIT_REQUESTS_PER_MINUTE: "100",
+      QUOTA_DATA_DIR: tempDataDir,
+      WORKSPACES_ROOT: tempDataDir,
+      ARTIFACTS_ROOT: tempDataDir
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
@@ -221,17 +236,22 @@ try {
   assert.ok(claudeModel?.modelToken);
   assert.equal(modelData.models.some((model) => model.key === "deepseek-v4-pro"), false);
 
-  const chat = async (model, content, attachments) => await fetch(`http://127.0.0.1:${appPort}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({
-      provider: model.provider,
-      model: model.id,
-      modelToken: model.modelToken,
-      messages: [{ role: "user", content, ...(attachments ? { attachments } : {}) }],
-      options: { temperature: 0.7, maxOutputTokens: 1024, reasoningEffort: "auto" }
-    })
-  });
+  const chat = async (model, content, attachments) => {
+    const res = await fetch(`http://127.0.0.1:${appPort}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        provider: model.provider,
+        model: model.id,
+        modelToken: model.modelToken,
+        messages: [{ role: "user", content, ...(attachments ? { attachments } : {}) }],
+        options: { temperature: 0.7, maxOutputTokens: 1024, reasoningEffort: "auto" },
+        visionCapability: model.vision
+      })
+    });
+    if (res.status !== 200) return new Response(null, { status: res.status });
+    return res;
+  };
 
   const goChat = await chat(goModel, "hello go");
   assert.equal(goChat.status, 200);
@@ -252,7 +272,8 @@ try {
   const responseFailure = await chat(goModel, "cause-response-failed");
   assert.equal(responseFailure.status, 200);
   const responseFailureEvents = parseNdjson(await responseFailure.text());
-  assert.equal(responseFailureEvents.find((event) => event.type === "error")?.value, "Mock response failure");
+  // 上游 response.failed 经 friendlyStreamError 映射为友好文案（未知错误 → 通用提示）
+  assert.equal(responseFailureEvents.find((event) => event.type === "error")?.value, "模型返回了未识别的错误，请重试或切换模型。");
 
   const truncatedResponse = await chat(goModel, "cause-truncated-stream");
   assert.equal(truncatedResponse.status, 200);
@@ -268,7 +289,8 @@ try {
   const streamError = await chat(claudeModel, "cause-error");
   assert.equal(streamError.status, 200);
   const errorEvents = parseNdjson(await streamError.text());
-  assert.equal(errorEvents.find((event) => event.type === "error")?.value, "Mock overload");
+  // overloaded_error 命中 /overload/ 特征 → 繁忙文案
+  assert.equal(errorEvents.find((event) => event.type === "error")?.value, "模型服务繁忙或配额受限，请稍后重试。");
 
   const imageAttachment = {
     name: "pixel.png",
@@ -285,12 +307,20 @@ try {
   const imageChat = await chat(grokModel, "", [imageAttachment]);
   assert.equal(imageChat.status, 200);
   await imageChat.text();
-  assert.deepEqual(observations.goChatPayloads.at(-1).messages.at(-1).content.map((part) => part.type), ["image_url"]);
+  // grok 无原生视觉 → 图片经 describeImageBase64 转为 UNTRUSTED VISUAL CONTEXT 文本注入
+  const grokImagePayload = observations.goChatPayloads.at(-1);
+  assert.equal(typeof grokImagePayload.messages.at(-1).content, "string");
+  assert.ok(grokImagePayload.messages.at(-1).content.includes("视觉描述"));
+  assert.deepEqual(observations.visionPayloads.at(-1).messages.at(-1).content.map((part) => part.type), ["image", "text"]);
 
   const imageMessages = await chat(qwenModel, "", [imageAttachment]);
   assert.equal(imageMessages.status, 200);
   await imageMessages.text();
-  assert.deepEqual(observations.goMessagePayloads.at(-1).messages.at(-1).content.map((part) => part.type), ["image"]);
+  // qwen 同样无原生视觉 → content 为注入视觉上下文的 text 块
+  const qwenImagePayload = observations.goMessagePayloads.at(-1);
+  const qwenImageContent = qwenImagePayload.messages.at(-1).content;
+  assert.deepEqual(qwenImageContent.map((part) => part.type), ["text"]);
+  assert.ok(qwenImageContent[0].text.includes("视觉描述"));
 
   const imageAnthropic = await chat(claudeModel, "", [imageAttachment]);
   assert.equal(imageAnthropic.status, 200);
@@ -304,13 +334,14 @@ try {
   });
   assert.equal(forbidden.status, 403);
 
-  assert.ok(observations.goHeaders.length >= 9);
+  assert.ok(observations.goHeaders.length >= 11);
   assert.ok(observations.anthropicHeaders.length >= 4);
   assert.equal(observations.goResponsePayloads.length, 4);
   assert.equal(observations.goChatPayloads.length, 2);
   assert.equal(observations.goMessagePayloads.length, 2);
+  assert.equal(observations.visionPayloads.length, 2);
   assert.equal(observations.anthropicPayloads.length, 3);
-  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, and image-only payloads");
+  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, and vision-preprocessed images");
 } finally {
   if (nextProcess && !nextProcess.killed) nextProcess.kill();
   await new Promise((resolve) => providerServer.close(resolve));

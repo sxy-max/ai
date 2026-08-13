@@ -599,6 +599,7 @@ export default function Home() {
         webContext: external.webContext,
         urlContext: external.urlContext,
         options,
+        visionCapability: activeModel.vision,
         personalization: pz,
         skills: relevantSkills.map((s) => ({ name: s.name, content: s.content }))
       });

@@ -27,6 +27,8 @@ type Body = {
   options?: ChatOptions;
   personalization?: { memory?: string; style?: string };
   skills?: { name: string; content: string }[];
+  /** 客户端从 /api/models 获得的该模型视觉能力；缺省回退到服务端静态判断。 */
+  visionCapability?: boolean | "unknown";
 };
 type StreamEvent = { type: "meta" | "text" | "reasoning" | "error" | "done"; value?: string; protocol?: Protocol; provider?: Provider; stopReason?: string };
 
@@ -72,9 +74,10 @@ async function preprocessVision(
   messages: ClientMessage[],
   provider: Provider,
   model: string,
-  key: string
+  key: string,
+  clientVision?: boolean | "unknown"
 ): Promise<ClientMessage[]> {
-  const visionCapability = provider === "anthropic" ? true : capabilitiesForModel(model).vision;
+  const visionCapability = provider === "anthropic" ? true : clientVision ?? capabilitiesForModel(model).vision;
   if (modelSupportsVision(provider, visionCapability)) return messages;
   if (!key) throw new HttpError(503, "该模型不支持图片，且视觉预处理服务未配置");
 
@@ -124,6 +127,10 @@ function validateBody(value: unknown): Body {
   if (value.provider !== "opencode-go" && value.provider !== "anthropic") throw new HttpError(400, "Invalid provider");
   if (typeof value.model !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value.model)) throw new HttpError(400, "Invalid model");
   if (typeof value.modelToken !== "string" || value.modelToken.length > 1_500) throw new HttpError(403, "Missing model access token");
+  if (value.visionCapability != null && value.visionCapability !== true && value.visionCapability !== false && value.visionCapability !== "unknown") {
+    throw new HttpError(400, "Invalid vision capability");
+  }
+  const visionCapability = value.visionCapability as boolean | "unknown" | undefined;
   if (!Array.isArray(value.messages) || value.messages.length === 0 || value.messages.length > MAX_MESSAGES) throw new HttpError(400, "Invalid message count");
 
   let totalText = 0;
@@ -212,7 +219,8 @@ function validateBody(value: unknown): Body {
     urlContext,
     options,
     personalization,
-    skills
+    skills,
+    visionCapability
   };
 }
 
@@ -487,7 +495,7 @@ export async function POST(request: Request) {
   }
 
   let routedMessages = appendContext(body.messages, body.webContext, body.urlContext);
-  routedMessages = await preprocessVision(routedMessages, body.provider, body.model, key);
+  routedMessages = await preprocessVision(routedMessages, body.provider, body.model, key, body.visionCapability);
   const headers: Record<string, string> = body.provider === "anthropic"
     ? anthropicHeaders(key)
     : { "content-type": "application/json", authorization: `Bearer ${key}` };
