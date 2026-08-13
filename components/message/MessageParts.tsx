@@ -7,6 +7,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import "katex/dist/katex.min.css";
+import { normalizeMathDelimiters } from "../../lib/math";
 
 // 统一的 message 渲染: user 与 assistant 共用, 仅 variant 区分视觉
 // 渲染: reasoning(折叠) + content(markdown+katex+highlight) + artifacts(卡片) + attachments(chips)
@@ -106,13 +107,13 @@ export default function MessageParts({ message, busy }: { message: MessageLike; 
       {message.reasoning ? (
         <details className="reasoning">
           <summary>思考过程 <span>已完成</span></summary>
-          <div><ReactMarkdown {...md}>{message.reasoning}</ReactMarkdown></div>
+          <div><ReactMarkdown {...md}>{normalizeMathDelimiters(message.reasoning)}</ReactMarkdown></div>
         </details>
       ) : null}
 
       <div className="msg-text">
         <ReactMarkdown {...md}>
-          {message.content || (busy ? "▍" : "")}
+          {normalizeMathDelimiters(message.content) || (busy ? "▍" : "")}
         </ReactMarkdown>
       </div>
 
