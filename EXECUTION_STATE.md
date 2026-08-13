@@ -1,6 +1,7 @@
 # Go AI — Execution State
 
 ## 已完成并实现（云端已部署，本地已同步）
+- **2026-08-13 两次上线**：Feature Build 大版本 + Stabilization 批次（storageSafeMessages key 修复）。线上回归确认 kimi 完整流 meta+reasoning+text+done、vision-chat、登录/模型/公网 200。
 - 网络基础设施：sing-box(Docker proxy) / Nginx / Docker / go-ai-net（冻结）
 - File Agent 底层：Claude Code + DeepSeek V4 Flash、cc-auth-gateway、go-ai-file-agent 容器（非root/仅workspace）、单并发+15min超时、Bash deny
 - 模型系统：7 精选模型 + KNOWN_VISION(kimi=true,glm=false) + modelPolicy(kimi temp=1) + 配额(quota.ts 持久化)
@@ -24,20 +25,20 @@
 - 线上回归全绿：公网200 / 登录 / 模型7个 / kimi 真实流式 / **glm无视觉+图片→MiniMax→回答** / personalization+skills 注入 / File Agent 上传→任务→artifact
 
 ## 待做（按依赖排序）
-1. Stabilization：手机端、真实模型多轮、history schema 迁移完整性、KaTeX 复杂公式细节
-2. 剩余 backlog：E2E 追加（Settings/个性化/主题视图）、响应式细节
+1. Stabilization 收尾：真实模型多轮（线上回归已单轮）、公网浏览器视觉验证、长对话上下文压测
+2. 长期 backlog：语音（Conditional/Future）、sandbox Bash（独立阶段）、真实模型差异回归
 
 ## Blocked
 - 无
 
 ## 已验证
 - 云端（历史）：File Agent 三测试、ZIP、vision→file、Artifact 下载、安全 8-10、重启恢复
-- **云端（本次部署回归）**：vision-chat 预处理、真实流式聊天、personalization/skills 注入、File Agent 链路
-- 本地：typecheck/build/单测 40/40、**E2E 9/9 全过**（reasoning/KaTeX/HTML artifact/复制/高亮/刷新持久）
-- E2E 基础设施根治：Next16 allowedDevOrigins（"Target crashed" 真根因）+ reuse=false + globalSetup 预热 + selectModel 按 value
+- **云端（本次部署回归）**：vision-chat 预处理、真实流式聊天（kimi meta+reasoning+text+done）、personalization/skills 注入、File Agent 链路、公网 200
+- 本地：typecheck/build/单测 41/41、**E2E 13/13 全过**（reasoning/KaTeX/artifact/复制/高亮/设置/个性化/迁移/移动端）
+- E2E 基础设施根治：Next16 allowedDevOrigins + reuse=false + globalSetup 预热 + selectModel 按 value
 
 ## 未验证
-- 手机端、真实模型多轮、公网浏览器视觉验证（curl 已验证 API 层）
+- 手机端浏览器物理验证（viewport E2E 已过）、真实模型多轮、公网浏览器视觉回归
 
 ## Stabilization Backlog
 - ~~E2E "Target crashed"~~ 根因已修复：Next16 dev 跨源保护（allowedDevOrigins 未含 127.0.0.1 → 浏览器 Origin 头的 chunk/HMR 请求 403，app 不 hydrate；curl 无 Origin 故正常）。已加 allowedDevOrigins + globalSetup 预热

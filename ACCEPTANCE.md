@@ -17,7 +17,7 @@ Feature Build 完成标准（全部 IMPLEMENTED）。状态: [x]=已实现, [~]=
 - [x] 图片粘贴
 - [x] 图片上传
 - [x] MiniMax Vision（独立链路）
-- [~] 普通图片聊天（image → MiniMax → 当前模型，服务端兜底 + 单测过，待线上回归）
+- [x] 普通图片聊天（image → MiniMax → 当前模型；本地单测 + 线上 glm+img 回归）
 - [~] 图片+文件 Agent 闭环（云端实测过 vision→file）
 - [x] 文件上传（multipart → workspace）
 - [x] 文件下载（Artifact）
@@ -28,14 +28,14 @@ Feature Build 完成标准（全部 IMPLEMENTED）。状态: [x]=已实现, [~]=
 - [x] 文件真实编辑（Read/Edit/Write）
 - [x] ZIP 项目处理
 - [x] Artifact 历史（刷新可见，E2E TEST7 验证）
-- [~] Memory（localStorage，CRUD/启停）
-- [~] Response Style（4 预设 + 自定义，独立注入）
+- [x] Memory（localStorage，CRUD/启停，E2E TEST11）
+- [~] Response Style（4 预设 + 自定义，独立注入；线上注入已验证）
 - [~] 用户 Skills（SKILL.md 导入/启停）
-- [~] Skills 进入普通 Chat（相关性选择 + [USER SKILLS]）
+- [~] Skills 进入普通 Chat（相关性选择 + [USER SKILLS]；线上注入已验证）
 - [~] Skills 进入 File Agent（task skills 字段转发）
-- [~] MCP/Tool Registry 基础（内置工具按任务解析 + /api/tools + 外部注册默认关闭）
-- [~] 模型可用性状态（MODEL_REGION_UNAVAILABLE / TEMP_UNAVAILABLE / NOT_FOUND / 上游 quota → 友好中文，不暴露原始错误）
-- [~] Settings 页（主题/联网/上下文/Reasoning/温度/Max output，模型能力禁用）
+- [x] MCP/Tool Registry 基础（内置工具按任务解析 + /api/tools + 外部注册默认关闭，单测验证）
+- [x] 模型可用性状态（MODEL_* 友好中文，单测 + 线上验证，不暴露原始错误）
+- [x] Settings 页（主题/联网/上下文/Reasoning/温度/Max output，模型能力禁用，E2E TEST10）
 - [x] Sidebar 个性化入口（底部 个性化/设置 导航）
 - [x] 联网（Exa MCP）
 - [x] URL fetch
