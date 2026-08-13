@@ -7,9 +7,8 @@ async function sendPrompt(page: any, prompt: string) {
 }
 
 async function selectModel(page: any, model: string) {
-  await page.locator(".model-wrap select").selectOption({ label: model }).catch(async () => {
-    await page.locator(".model-wrap select").selectOption(model);
-  });
+  // 按 value 选择（option label 带 · Go · E2E Mock 后缀，精确 label 匹配会等满超时）
+  await page.locator(".model-wrap select").selectOption(model, { timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page }) => {

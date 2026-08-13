@@ -36,6 +36,6 @@
 - 手机端、真实模型多轮、公网回归、云端 vision-chat 预处理
 
 ## Stabilization Backlog
-- E2E "Target crashed"（Playwright+Next dev 交互）
+- ~~E2E "Target crashed"~~ 根因已修复：Next16 dev 跨源保护（allowedDevOrigins 未含 127.0.0.1 → 浏览器 Origin 头的 chunk/HMR 请求 403，app 不 hydrate；curl 无 Origin 故正常）。已加 allowedDevOrigins + globalSetup 预热
 - KaTeX 复杂公式视觉细节（V_eff'' 类）
 - 历史 schema 迁移完整性
