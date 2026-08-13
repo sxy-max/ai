@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import MessageParts from "../components/message/MessageParts";
+import PersonalizationPanel from "../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
 import { transformAllHtml } from "../lib/message/transform";
 import rehypeKatex from "rehype-katex";
@@ -214,7 +215,7 @@ export default function Home() {
   const [maxOutputTokens, setMaxOutputTokens] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
   const [theme, setTheme] = useState<ThemeMode>("system");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState<"chat" | "settings" | "personalization">("chat");
   const [error, setError] = useState("");
   const [sidebar, setSidebar] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -452,8 +453,8 @@ export default function Home() {
     paint();
   }
 
-  function newChat() { stopActiveRun(); setCurrentId(uid()); setMessages([]); setInput(""); setAttachments([]); setModel(""); setError(""); setShowOtherModels(false); setSidebar(false); }
-  function openChat(c: Conversation) { stopActiveRun(); setCurrentId(c.id); setMessages(c.messages); setModel(c.model || ""); if (c.model && !models.find((m) => m.key === c.model && typeof m.featuredRank === "number")) setShowOtherModels(true); setAttachments([]); setError(""); setSidebar(false); }
+  function newChat() { stopActiveRun(); setCurrentId(uid()); setMessages([]); setInput(""); setAttachments([]); setModel(""); setError(""); setShowOtherModels(false); setSidebar(false); setView("chat"); }
+  function openChat(c: Conversation) { stopActiveRun(); setCurrentId(c.id); setMessages(c.messages); setModel(c.model || ""); if (c.model && !models.find((m) => m.key === c.model && typeof m.featuredRank === "number")) setShowOtherModels(true); setAttachments([]); setError(""); setSidebar(false); setView("chat"); }
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -649,36 +650,54 @@ export default function Home() {
   if (!authed) return <main className="login-shell"><section className="login-card"><div className="brand-orb">AI</div><h1>Go AI</h1><p>OpenCode Go + optional Claude · private client</p><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && authenticate()} placeholder="访问密码" autoFocus /><button onClick={() => authenticate()}>进入</button>{loginError && <div className="error">{loginError}</div>}</section></main>;
 
   return <main className="app-shell">
-    <aside className={`sidebar ${sidebar ? "open" : ""}`}><div className="side-head"><strong>Go AI</strong><button onClick={() => setSidebar(false)}>×</button></div><button className="new-chat" onClick={newChat}>＋ 新对话</button><div className="history">{conversations.map((c) => <button key={c.id} className={c.id === currentId ? "active" : ""} onClick={() => openChat(c)}><span>{c.title}</span><small>{c.model ? prettyModel(c.model) : "未选模型"}</small></button>)}</div></aside>
+    <aside className={`sidebar ${sidebar ? "open" : ""}`}><div className="side-head"><strong>Go AI</strong><button onClick={() => setSidebar(false)}>×</button></div><button className="new-chat" onClick={newChat}>＋ 新对话</button><div className="history">{conversations.map((c) => <button key={c.id} className={c.id === currentId ? "active" : ""} onClick={() => openChat(c)}><span>{c.title}</span><small>{c.model ? prettyModel(c.model) : "未选模型"}</small></button>)}</div><div className="side-foot"><button className={`side-nav ${view === "personalization" ? "active" : ""}`} onClick={() => { setSidebar(false); setView("personalization"); }}><span>🧭</span>个性化</button><button className={`side-nav ${view === "settings" ? "active" : ""}`} onClick={() => { setSidebar(false); setView("settings"); }}><span>⚙</span>设置</button></div></aside>
     {sidebar && <div className="scrim" onClick={() => setSidebar(false)} />}
 
     <section className="chat-panel">
-      <header><button className="icon-btn" onClick={() => setSidebar(true)}>☰</button><div className="model-wrap"><span className="eyebrow">MODEL</span><select value={model} onChange={(e) => setModel(e.target.value)}><option value="">选择最强模型…</option>{featuredModels.length ? <optgroup label="最佳模型">{featuredModels.map((m) => <option key={m.key} value={m.key} disabled={!m.supported}>{m.displayName || prettyModel(m.id)} · {m.provider === "anthropic" ? "Claude" : "Go"}{m.useCase ? ` · ${m.useCase}` : ""}{!m.supported ? " · route?" : ""}</option>)}</optgroup> : null}{showOtherModels && otherModels.length ? <optgroup label="其他模型 · 高级选项">{otherModels.map((m) => <option key={m.key} value={m.key} disabled={!m.supported}>{m.displayName || prettyModel(m.id)} · {m.provider === "anthropic" ? "Claude" : "Go"}{!m.supported ? " · route?" : ""}</option>)}</optgroup> : null}</select></div><button className="icon-btn" onClick={newChat}>＋</button></header>
-      <div className="model-controls">
-        <div className="model-search">{allowOtherModels && <button className={showOtherModels ? "other-toggle active" : "other-toggle"} onClick={() => setShowOtherModels((x) => !x)}>{showOtherModels ? "收起其他模型" : "显示其他模型"}</button>}{allowOtherModels && showOtherModels && <input value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} placeholder="搜索其他模型" />}</div>
-        {providerWarnings.length > 0 && <div className="provider-warning">{providerWarnings.join(" ")}</div>}
-        
-        {settingsOpen && <div className="settings-panel"><label>主题<select value={theme} onChange={(e) => setTheme(e.target.value as ThemeMode)}><option value="system">自动</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label><label>Reasoning<select value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label><label>温度{selectedModel?.temperaturePolicy?.mode === "fixed" ? <small>固定 {selectedModel.temperaturePolicy.value}</small> : selectedModel?.provider === "anthropic" ? <small>由 Claude 自动管理</small> : null}{selectedModel?.temperaturePolicy?.mode !== "fixed" && <input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} />}</label><label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label></div>}
-      </div>
+      <header><button className="icon-btn" onClick={() => setSidebar(true)}>☰</button><div className="model-wrap"><span className="eyebrow">MODEL</span><select value={model} onChange={(e) => setModel(e.target.value)}><option value="">选择最强模型…</option>{featuredModels.length ? <optgroup label="最佳模型">{featuredModels.map((m) => <option key={m.key} value={m.key} disabled={!m.supported}>{m.displayName || prettyModel(m.id)} · {m.provider === "anthropic" ? "Claude" : "Go"}{m.useCase ? ` · ${m.useCase}` : ""}{!m.supported ? " · route?" : ""}</option>)}</optgroup> : null}{showOtherModels && otherModels.length ? <optgroup label="其他模型 · 高级选项">{otherModels.map((m) => <option key={m.key} value={m.key} disabled={!m.supported}>{m.displayName || prettyModel(m.id)} · {m.provider === "anthropic" ? "Claude" : "Go"}{!m.supported ? " · route?" : ""}</option>)}</optgroup> : null}</select></div>{view === "chat" ? <button className="icon-btn" onClick={newChat}>＋</button> : <button className="icon-btn" title="返回聊天" onClick={() => setView("chat")}>✕</button>}</header>
 
-      <div className="messages">
-        {messages.length === 0 && <div className="empty-state"><div className="hero-orb">AI</div><h2>只把最强模型放在入口。</h2><p>OpenCode Go 始终可独立使用；配置 Anthropic Key 后会自动加入 Claude。联网、URL 和文件内容都只经服务端授权接口处理。</p></div>}
-        {messages.map((m) => <article key={m.id} className={`message ${m.role}`}><div className="role">{m.role === "user" ? "YOU" : prettyModel(m.model || model || "AI")}</div>
-          {(m.attachments?.length || m.webUsed || m.urlUsed || m.visionUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.visionUsed && !busy && <span>▧ 视觉分析</span>}{m.attachments?.map((a) => <span key={a.id}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.compressed ? " · 已压缩" : ""}</span>)}</div> : null}
-          {m.urlSources?.length ? <div className="source-grid">{m.urlSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
-          {m.webSources?.length ? <div className="source-grid">{m.webSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
-          <MessageParts message={m} busy={busy} />
-          {m.role === "assistant" && <button className="msg-copy" onClick={() => copyMessage(m)}>{copiedId === m.id ? "已复制 ✓" : "复制"}</button>}
-        </article>)}
-        <div ref={bottomRef} />
-      </div>
+      {view === "chat" ? <>
+        <div className="model-controls">
+          <div className="model-search">{allowOtherModels && <button className={showOtherModels ? "other-toggle active" : "other-toggle"} onClick={() => setShowOtherModels((x) => !x)}>{showOtherModels ? "收起其他模型" : "显示其他模型"}</button>}{allowOtherModels && showOtherModels && <input value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} placeholder="搜索其他模型" />}</div>
+          {providerWarnings.length > 0 && <div className="provider-warning">{providerWarnings.join(" ")}</div>}
+        </div>
 
-      {E2E && <div data-testid="mock-mode-indicator" style={{position:"fixed",top:4,right:8,fontSize:10,color:"#7c8495",zIndex:50}}>E2E-MOCK</div>}
-      <footer>{attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}{error && <div className="error inline">{error}</div>}
-        <div className="tool-row"><button className={searchMode !== "off" ? "tool active" : "tool"} onClick={cycleSearchMode}>◎ {searchBusy ? "检索中" : searchLabel}</button><button className={settingsOpen ? "tool active" : "tool"} onClick={() => setSettingsOpen((x) => !x)}>⚙ 参数</button>{visionBusy && <span className="tool status">▧ 视觉分析中…</span>}<span>{selectedModel ? `${prettyModel(selectedModel.id)} · ${selectedModel.protocol}` : "未选择模型"}</span></div>
-        <div className="composer"><label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} onPaste={(e) => { const items = e.clipboardData?.items; if (!items) return; const files = []; for (let i = 0; i < items.length; i++) { const it = items[i]; if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) files.push(f); } } if (!files.length) return; e.preventDefault(); const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); handleFiles(dt.files); }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "问点什么，或粘贴 URL…"} rows={1} data-testid="chat-input" />{busy ? <button className="send stop" data-testid="send-button" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send" data-testid="send-button" onClick={send}>↑</button>}</div>
-        <div className="footnote">历史正文保存在本机 · 附件内容不落盘，刷新后需重新添加 · API Key 只在服务端 · URL/联网使用 Exa MCP</div>
-      </footer>
+        <div className="messages">
+          {messages.length === 0 && <div className="empty-state"><div className="hero-orb">AI</div><h2>只把最强模型放在入口。</h2><p>OpenCode Go 始终可独立使用；配置 Anthropic Key 后会自动加入 Claude。联网、URL 和文件内容都只经服务端授权接口处理。</p></div>}
+          {messages.map((m) => <article key={m.id} className={`message ${m.role}`}><div className="role">{m.role === "user" ? "YOU" : prettyModel(m.model || model || "AI")}</div>
+            {(m.attachments?.length || m.webUsed || m.urlUsed || m.visionUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.visionUsed && !busy && <span>▧ 视觉分析</span>}{m.attachments?.map((a) => <span key={a.id}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.compressed ? " · 已压缩" : ""}</span>)}</div> : null}
+            {m.urlSources?.length ? <div className="source-grid">{m.urlSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
+            {m.webSources?.length ? <div className="source-grid">{m.webSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
+            <MessageParts message={m} busy={busy} />
+            {m.role === "assistant" && <button className="msg-copy" onClick={() => copyMessage(m)}>{copiedId === m.id ? "已复制 ✓" : "复制"}</button>}
+          </article>)}
+          <div ref={bottomRef} />
+        </div>
+
+        {E2E && <div data-testid="mock-mode-indicator" style={{position:"fixed",top:4,right:8,fontSize:10,color:"#7c8495",zIndex:50}}>E2E-MOCK</div>}
+        <footer>{attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}{error && <div className="error inline">{error}</div>}
+          <div className="tool-row"><button className={searchMode !== "off" ? "tool active" : "tool"} onClick={cycleSearchMode}>◎ {searchBusy ? "检索中" : searchLabel}</button><button className="tool" onClick={() => setView("settings")}>⚙ 设置</button>{visionBusy && <span className="tool status">▧ 视觉分析中…</span>}<span>{selectedModel ? `${prettyModel(selectedModel.id)} · ${selectedModel.protocol}` : "未选择模型"}</span></div>
+          <div className="composer"><label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} onPaste={(e) => { const items = e.clipboardData?.items; if (!items) return; const files = []; for (let i = 0; i < items.length; i++) { const it = items[i]; if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) files.push(f); } } if (!files.length) return; e.preventDefault(); const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); handleFiles(dt.files); }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "问点什么，或粘贴 URL…"} rows={1} data-testid="chat-input" />{busy ? <button className="send stop" data-testid="send-button" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send" data-testid="send-button" onClick={send}>↑</button>}</div>
+          <div className="footnote">历史正文保存在本机 · 附件内容不落盘，刷新后需重新添加 · API Key 只在服务端 · URL/联网使用 Exa MCP</div>
+        </footer>
+      </> : view === "settings" ? (
+        <div className="settings-view">
+          <div className="view-head"><h2>设置</h2><p>高级选项会立即生效，已按当前模型能力自动禁用不支持的参数。</p></div>
+          <div className="settings-grid">
+            <label>主题<select value={theme} onChange={(e) => setTheme(e.target.value as ThemeMode)}><option value="system">自动</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+            <label>联网<select value={searchMode} onChange={(e) => setSearchMode(e.target.value as SearchMode)}><option value="auto">自动</option><option value="on">开启</option><option value="off">关闭</option></select></label>
+            <label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label>
+            <label>Reasoning<select value={reasoningEffort} disabled={selectedModel?.reasoningPolicy === "none"} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select>{selectedModel?.reasoningPolicy === "none" && <small>当前模型不支持</small>}</label>
+            <label>温度{selectedModel?.temperaturePolicy?.mode === "fixed" ? <small>固定 {selectedModel.temperaturePolicy.value}</small> : selectedModel?.provider === "anthropic" ? <small>由 Claude 自动管理</small> : null}{selectedModel?.temperaturePolicy?.mode !== "fixed" && <input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} />}</label>
+            <label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label>
+          </div>
+        </div>
+      ) : (
+        <div className="settings-view">
+          <div className="view-head"><h2>个性化</h2><p>记忆 · 回复风格 · 我的 Skills。按浏览器本地保存，不共享服务器 Profile。</p></div>
+          <PersonalizationPanel />
+        </div>
+      )}
     </section>
   </main>;
 }
