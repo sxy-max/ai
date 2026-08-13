@@ -92,6 +92,20 @@ function safeSourceHref(value: string) {
   } catch { return undefined; }
 }
 
+/** 服务端结构化模型可用性错误 → 友好中文（不把 provider 原始错误直接展示）。 */
+function friendlyApiError(j: any): string {
+  if (!j || typeof j !== "object") return "";
+  const code = j.code;
+  if (code === "MODEL_QUOTA_EXCEEDED") {
+    const mins = Math.ceil(j.retryAfterSeconds / 60);
+    return `${j.model} 的 ${j.window === "5h" ? "5 小时" : "7 天"}额度已用完（${j.used}/${j.limit}），约 ${mins} 分钟后恢复` + (j.window === "5h" ? `，本周 ${j.used7d}/${j.limit7d}` : "");
+  }
+  if (["MODEL_REGION_UNAVAILABLE", "MODEL_NOT_FOUND", "MODEL_TEMP_UNAVAILABLE", "MODEL_QUOTA_EXCEEDED_UPSTREAM", "MODEL_ERROR"].includes(code)) {
+    return typeof j.message === "string" && j.message ? j.message : "模型请求失败，请重试或切换模型。";
+  }
+  return "";
+}
+
 function extractUrls(text: string) {
   return Array.from(new Set(text.match(/https?:\/\/[^\s)\]}>"']+/g) || [])).slice(0, 5);
 }
@@ -593,15 +607,9 @@ export default function Home() {
       setVisionBusy(false);
       if (!res.ok || !res.body) {
         const errText = (await res.text()) || `HTTP ${res.status}`;
-        let quotaMsg = "";
-        try {
-          const j = JSON.parse(errText);
-          if (j && j.code === "MODEL_QUOTA_EXCEEDED") {
-            const mins = Math.ceil(j.retryAfterSeconds / 60);
-            quotaMsg = `${j.model} 的 ${j.window === "5h" ? "5 小时" : "7 天"}额度已用完（${j.used}/${j.limit}），约 ${mins} 分钟后恢复` + (j.window === "5h" ? `，本周 ${j.used7d}/${j.limit7d}` : "");
-          }
-        } catch {}
-        throw new Error(quotaMsg || errText);
+        let friendly = "";
+        try { friendly = friendlyApiError(JSON.parse(errText)); } catch {}
+        throw new Error(friendly || errText);
       }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = "", streamError = "", stopReason = "", sawDone = false, lastPaint = 0;
       const consumeLine = (line: string) => {

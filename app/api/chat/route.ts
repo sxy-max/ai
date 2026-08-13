@@ -8,6 +8,7 @@ import { effectiveTemperature } from "../../../lib/modelPolicy";
 import { quotaCheck, quotaRecordSuccess } from "../../../lib/quota";
 import { buildVisualContextBlock, describeImageBase64, modelSupportsVision, type VisualDescription } from "../../../lib/vision";
 import { personalizationSystemText, skillsSystemText } from "../../../lib/personalization";
+import { classifyUpstreamError, friendlyStreamError } from "../../../lib/modelErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -412,17 +413,12 @@ function parseSseFrame(frame: string) {
   return data;
 }
 
-function publicUpstreamError(status: number, raw: string) {
-  try {
-    const json = JSON.parse(raw);
-    const message = json?.error?.message || json?.message;
-    if (typeof message === "string" && message) return `Provider request failed (${status}): ${message.slice(0, 300)}`;
-  } catch {}
-  return `Provider request failed (${status})`;
-}
-
 function errorResponse(message: string, status: number, headers?: HeadersInit) {
   return new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8", ...headers } });
+}
+
+function jsonErrorResponse(message: string, status: number, code: string) {
+  return new Response(JSON.stringify({ code, message, status }), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 }
 
 function mockStream(model: string): Response {
@@ -529,7 +525,8 @@ export async function POST(request: Request) {
   if (!upstream.ok || !upstream.body) {
     const detail = await upstream.text().catch(() => "");
     disposeUpstream();
-    return errorResponse(publicUpstreamError(upstream.status || 502, detail), upstream.status || 502);
+    const classified = classifyUpstreamError(upstream.status || 502, detail);
+    return jsonErrorResponse(classified.message, classified.status, classified.code);
   }
 
   await quotaRecordSuccess(body.model).catch(() => {});
@@ -579,8 +576,9 @@ export async function POST(request: Request) {
           if (delta.stopReason) stopReason = delta.stopReason;
           if (delta.terminal) doneMarker = true;
           if (delta.error) {
-            streamError = delta.error;
-            controller.enqueue(encodeEvent({ type: "error", value: delta.error }));
+            const friendly = friendlyStreamError(delta.error);
+            streamError = friendly;
+            controller.enqueue(encodeEvent({ type: "error", value: friendly }));
           }
         } catch {
           // Unknown or malformed provider events are ignored; future event types
