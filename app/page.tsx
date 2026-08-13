@@ -56,6 +56,7 @@ type StreamEvent = { type: "meta" | "text" | "reasoning" | "error" | "done"; val
 type SearchMode = "off" | "auto" | "on";
 type ContextMode = "compact" | "balanced" | "full";
 type ReasoningEffort = "off" | "auto" | "low" | "medium" | "high";
+type ThemeMode = "system" | "light" | "dark";
 
 const STORAGE_KEY = "go-ai-conversations-v3";
 const SETTINGS_KEY = "go-ai-settings-v3";
@@ -212,6 +213,7 @@ export default function Home() {
   const [temperature, setTemperature] = useState(0.7);
   const [maxOutputTokens, setMaxOutputTokens] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
+  const [theme, setTheme] = useState<ThemeMode>("system");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState("");
   const [sidebar, setSidebar] = useState(false);
@@ -256,6 +258,7 @@ export default function Home() {
       if (typeof s.temperature === "number") setTemperature(s.temperature);
       if (s.maxOutputTokens != null) setMaxOutputTokens(String(s.maxOutputTokens || ""));
       if (["off", "auto", "low", "medium", "high"].includes(s.reasoningEffort)) setReasoningEffort(s.reasoningEffort);
+      if (["system", "light", "dark"].includes(s.theme)) setTheme(s.theme);
     } catch {}
     setStorageReady(true);
     void authenticate(undefined, true);
@@ -263,7 +266,19 @@ export default function Home() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, searchBusy]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)); } catch {} }, [conversations, storageReady]);
-  useEffect(() => { if (!storageReady) return; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort })); } catch {} }, [searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, storageReady]);
+  useEffect(() => { if (!storageReady) return; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme })); } catch {} }, [searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme, storageReady]);
+
+  // 自动主题：system 跟随系统；light/dark 手动覆盖。无硬编码时间点。
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const apply = () => {
+      const resolved = theme === "system" ? (mq.matches ? "light" : "dark") : theme;
+      document.documentElement.dataset.theme = resolved;
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [theme]);
 
   async function authenticate(candidate?: string, silent = false) {
     const authRunId = authRunRef.current + 1;
@@ -643,7 +658,7 @@ export default function Home() {
         <div className="model-search">{allowOtherModels && <button className={showOtherModels ? "other-toggle active" : "other-toggle"} onClick={() => setShowOtherModels((x) => !x)}>{showOtherModels ? "收起其他模型" : "显示其他模型"}</button>}{allowOtherModels && showOtherModels && <input value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} placeholder="搜索其他模型" />}</div>
         {providerWarnings.length > 0 && <div className="provider-warning">{providerWarnings.join(" ")}</div>}
         
-        {settingsOpen && <div className="settings-panel"><label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label><label>Reasoning<select value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label><label>温度{selectedModel?.temperaturePolicy?.mode === "fixed" ? <small>固定 {selectedModel.temperaturePolicy.value}</small> : selectedModel?.provider === "anthropic" ? <small>由 Claude 自动管理</small> : null}{selectedModel?.temperaturePolicy?.mode !== "fixed" && <input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} />}</label><label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label></div>}
+        {settingsOpen && <div className="settings-panel"><label>主题<select value={theme} onChange={(e) => setTheme(e.target.value as ThemeMode)}><option value="system">自动</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label><label>Reasoning<select value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label><label>温度{selectedModel?.temperaturePolicy?.mode === "fixed" ? <small>固定 {selectedModel.temperaturePolicy.value}</small> : selectedModel?.provider === "anthropic" ? <small>由 Claude 自动管理</small> : null}{selectedModel?.temperaturePolicy?.mode !== "fixed" && <input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} />}</label><label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label></div>}
       </div>
 
       <div className="messages">
