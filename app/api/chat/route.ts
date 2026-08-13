@@ -1,11 +1,12 @@
 import { anthropicHeaders } from "../../../lib/anthropic";
 import { accessConfigurationError, isAuthorized, verifyModelAccess } from "../../../lib/auth";
 import { HttpError, isRecord, readJsonBody } from "../../../lib/http";
-import { endpointForProtocol, type Provider, protocolForModel, type Protocol } from "../../../lib/opencode";
+import { capabilitiesForModel, endpointForProtocol, type Provider, protocolForModel, type Protocol } from "../../../lib/opencode";
 import { checkRateLimit } from "../../../lib/rate-limit";
 import { detectSkill, skillInstruction } from "../../../lib/skills";
 import { effectiveTemperature } from "../../../lib/modelPolicy";
 import { quotaCheck, quotaRecordSuccess } from "../../../lib/quota";
+import { buildVisualContextBlock, describeImageBase64, modelSupportsVision, type VisualDescription } from "../../../lib/vision";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +57,42 @@ function appendContext(messages: ClientMessage[], webContext?: string, urlContex
   if (webContext) sections.push(`[WEB SEARCH CONTEXT]\n${trustBoundary}\n${webContext}\n[END WEB SEARCH CONTEXT]`);
   lastUser.content += `\n\n${sections.join("\n\n")}`;
   return copy;
+}
+
+/**
+ * 服务端视觉兜底：非 vision 模型收到图片时，先经 MiniMax 描述，
+ * 以 UNTRUSTED VISUAL CONTEXT 注入正文，并把图片从附件中剥离。
+ * 客户端负责正常发图；这里保证任何非 vision 模型都不会收到 image_url。
+ */
+async function preprocessVision(
+  messages: ClientMessage[],
+  provider: Provider,
+  model: string,
+  key: string
+): Promise<ClientMessage[]> {
+  const visionCapability = provider === "anthropic" ? true : capabilitiesForModel(model).vision;
+  if (modelSupportsVision(provider, visionCapability)) return messages;
+  if (!key) throw new HttpError(503, "该模型不支持图片，且视觉预处理服务未配置");
+
+  const copy = messages.map((m) => ({ ...m, attachments: m.attachments ? m.attachments.map((a) => ({ ...a })) : undefined }));
+  let changed = false;
+  for (const msg of copy) {
+    if (msg.role !== "user") continue;
+    const images = (msg.attachments || []).filter((a) => a.kind === "image" && a.dataUrl);
+    if (!images.length) continue;
+    const descriptions: VisualDescription[] = [];
+    for (const img of images) {
+      const description = await describeImageBase64(img.dataUrl!, key);
+      descriptions.push({ name: img.name, description: description || "[分析失败：图片无法解析]" });
+    }
+    const block = buildVisualContextBlock(descriptions);
+    if (block) {
+      changed = true;
+      msg.content += block;
+      msg.attachments = (msg.attachments || []).filter((a) => a.kind !== "image");
+    }
+  }
+  return changed ? copy : messages;
 }
 
 function parseAttachment(value: unknown) {
@@ -420,7 +457,8 @@ export async function POST(request: Request) {
     }), { status: 429, headers: { "content-type": "application/json" } });
   }
 
-  const routedMessages = appendContext(body.messages, body.webContext, body.urlContext);
+  let routedMessages = appendContext(body.messages, body.webContext, body.urlContext);
+  routedMessages = await preprocessVision(routedMessages, body.provider, body.model, key);
   const headers: Record<string, string> = body.provider === "anthropic"
     ? anthropicHeaders(key)
     : { "content-type": "application/json", authorization: `Bearer ${key}` };

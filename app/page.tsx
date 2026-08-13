@@ -33,7 +33,7 @@ const mdComponents = { a: (props: any) => <a {...props} target="_blank" rel="nor
 type Provider = "opencode-go" | "anthropic";
 type Attachment = { id: string; name: string; mime: string; kind: "text" | "image"; text?: string; dataUrl?: string; originalChars?: number; contextChars?: number; compressed?: boolean };
 type WebSource = { title: string; url: string; summary?: string; content?: string };
-type Message = { id: string; role: "user" | "assistant"; content: string; status?: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[]; artifacts?: Artifact[] };
+type Message = { id: string; role: "user" | "assistant"; content: string; status?: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; visionUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[]; artifacts?: Artifact[] };
 type Artifact = { id: string; name: string; mime: string; size: number; downloadUrl: string };
 type FileTaskInfo = { id: string; file: File };
 
@@ -206,6 +206,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
+  const [visionBusy, setVisionBusy] = useState(false);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [contextMode, setContextMode] = useState<ContextMode>("balanced");
   const [temperature, setTemperature] = useState(0.7);
@@ -356,6 +357,7 @@ export default function Home() {
     setBusy(false);
     setFileBusy(false);
     setSearchBusy(false);
+    setVisionBusy(false);
   }
 
   async function processAutoArtifact(messages: Message[], prompt: string): Promise<Message[]> {
@@ -441,7 +443,6 @@ export default function Home() {
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
     if (fileBusyRef.current) { setError("已有文件正在读取，请等待完成后再添加。"); return; }
-    if (Array.from(files).some((f) => f.type.startsWith("image/")) && selectedModel && selectedModel.vision === false) { setError("当前模型不支持图片，请切换模型或移除图片。"); return; }
     if (attachments.length + files.length > MAX_FILES) { setError(`一次最多添加 ${MAX_FILES} 个文件。`); return; }
     const fileRunId = fileRunRef.current + 1;
     fileRunRef.current = fileRunId;
@@ -514,7 +515,10 @@ export default function Home() {
     const activeModel = selectedModel;
     const prompt = input.trim();
     const preparedAttachments = attachments.map((a) => contextAttachment(a, contextMode));
-    const userBase: Message = { id: uid(), role: "user", content: prompt, attachments: preparedAttachments, webUsed: false, urlUsed: extractUrls(prompt).length > 0 };
+    const hasImages = preparedAttachments.some((a) => a.kind === "image");
+    const visionUsed = hasImages && selectedModel.vision !== true;
+    if (visionUsed) setVisionBusy(true);
+    const userBase: Message = { id: uid(), role: "user", content: prompt, attachments: preparedAttachments, webUsed: false, urlUsed: extractUrls(prompt).length > 0, visionUsed };
     const assistant: Message = { id: uid(), role: "assistant", content: "", reasoning: "", model: activeModel.key, provider: activeModel.provider };
     let outgoing: Message[] = [...messages, userBase];
     setMessages([...outgoing, assistant]); setInput(""); setAttachments([]); persist(outgoing, activeModel.key, activeModel.provider);
@@ -561,6 +565,7 @@ export default function Home() {
         body: requestBody,
         signal: controller.signal
       });
+      setVisionBusy(false);
       if (!res.ok || !res.body) {
         const errText = (await res.text()) || `HTTP ${res.status}`;
         let quotaMsg = "";
@@ -620,7 +625,7 @@ export default function Home() {
         if (e?.name !== "AbortError") setError(`请求失败：${e?.message || e}`);
       }
     } finally {
-      if (runRef.current === runId) { setBusy(false); setSearchBusy(false); abortRef.current = null; }
+      if (runRef.current === runId) { setBusy(false); setSearchBusy(false); setVisionBusy(false); abortRef.current = null; }
     }
   }
 
@@ -644,7 +649,7 @@ export default function Home() {
       <div className="messages">
         {messages.length === 0 && <div className="empty-state"><div className="hero-orb">AI</div><h2>只把最强模型放在入口。</h2><p>OpenCode Go 始终可独立使用；配置 Anthropic Key 后会自动加入 Claude。联网、URL 和文件内容都只经服务端授权接口处理。</p></div>}
         {messages.map((m) => <article key={m.id} className={`message ${m.role}`}><div className="role">{m.role === "user" ? "YOU" : prettyModel(m.model || model || "AI")}</div>
-          {(m.attachments?.length || m.webUsed || m.urlUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.attachments?.map((a) => <span key={a.id}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.compressed ? " · 已压缩" : ""}</span>)}</div> : null}
+          {(m.attachments?.length || m.webUsed || m.urlUsed || m.visionUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.visionUsed && !busy && <span>▧ 视觉分析</span>}{m.attachments?.map((a) => <span key={a.id}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.compressed ? " · 已压缩" : ""}</span>)}</div> : null}
           {m.urlSources?.length ? <div className="source-grid">{m.urlSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
           {m.webSources?.length ? <div className="source-grid">{m.webSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
           <MessageParts message={m} busy={busy} />
@@ -655,7 +660,7 @@ export default function Home() {
 
       {E2E && <div data-testid="mock-mode-indicator" style={{position:"fixed",top:4,right:8,fontSize:10,color:"#7c8495",zIndex:50}}>E2E-MOCK</div>}
       <footer>{attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}{error && <div className="error inline">{error}</div>}
-        <div className="tool-row"><button className={searchMode !== "off" ? "tool active" : "tool"} onClick={cycleSearchMode}>◎ {searchBusy ? "检索中" : searchLabel}</button><button className={settingsOpen ? "tool active" : "tool"} onClick={() => setSettingsOpen((x) => !x)}>⚙ 参数</button><span>{selectedModel ? `${prettyModel(selectedModel.id)} · ${selectedModel.protocol}` : "未选择模型"}</span></div>
+        <div className="tool-row"><button className={searchMode !== "off" ? "tool active" : "tool"} onClick={cycleSearchMode}>◎ {searchBusy ? "检索中" : searchLabel}</button><button className={settingsOpen ? "tool active" : "tool"} onClick={() => setSettingsOpen((x) => !x)}>⚙ 参数</button>{visionBusy && <span className="tool status">▧ 视觉分析中…</span>}<span>{selectedModel ? `${prettyModel(selectedModel.id)} · ${selectedModel.protocol}` : "未选择模型"}</span></div>
         <div className="composer"><label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} onPaste={(e) => { const items = e.clipboardData?.items; if (!items) return; const files = []; for (let i = 0; i < items.length; i++) { const it = items[i]; if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) files.push(f); } } if (!files.length) return; e.preventDefault(); const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); handleFiles(dt.files); }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "问点什么，或粘贴 URL…"} rows={1} data-testid="chat-input" />{busy ? <button className="send stop" data-testid="send-button" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send" data-testid="send-button" onClick={send}>↑</button>}</div>
         <div className="footnote">历史正文保存在本机 · 附件内容不落盘，刷新后需重新添加 · API Key 只在服务端 · URL/联网使用 Exa MCP</div>
       </footer>

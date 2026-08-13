@@ -37,7 +37,10 @@ test("featured models add one stable Claude only when it is available", () => {
     "anthropic/claude-sonnet-5",
     "grok-4.5",
     "kimi-k3",
-    "glm-5.2"
+    "qwen3.8-max",
+    "glm-5.2",
+    "minimax-m3",
+    "deepseek-v4-pro"
   ]);
 });
 

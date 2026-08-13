@@ -3,6 +3,7 @@ import { accessConfigurationError, isAuthorized } from "../../../../lib/auth";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { describeImageBase64 } from "../../../../lib/vision";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,31 +33,7 @@ async function describeImage(filePath: string): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
   const media = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".gif" ? "image/gif" : ext === ".webp" ? "image/webp" : "image/png";
   const data = fs.readFileSync(filePath).toString("base64");
-  const payload = {
-    model: "minimax-m3",
-    max_tokens: 1500,
-    system: "你是视觉分析助手。请输出结构化的视觉描述，尽量覆盖：summary、visible_text、objects、layout、colors、ui_elements、task_relevant_details、uncertainties。用中文，条理清晰。",
-    messages: [{
-      role: "user",
-      content: [
-        { type: "image", source: { type: "base64", media_type: media, data } },
-        { type: "text", text: "请详细描述这张图片：主要内容、图片中的文字、UI 布局、颜色、控件位置，以及任何与后续修改任务相关的细节。" },
-      ],
-    }],
-  };
-  try {
-    const resp = await fetch("https://opencode.ai/zen/go/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) return "";
-    const json = await resp.json();
-    const blocks = Array.isArray(json.content) ? json.content : [];
-    return blocks.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("\n");
-  } catch {
-    return "";
-  }
+  return describeImageBase64(`data:${media};base64,${data}`, key);
 }
 
 export async function POST(request: Request) {
