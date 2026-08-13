@@ -9,7 +9,9 @@ import { WorkspaceManager } from "../../../../lib/workspace/service";
 import { walkWorkspace } from "../../../../lib/workspace/safety";
 import { GoFileAgentAdapter } from "../../../../lib/sandbox/dockerClaudeCode";
 import { JobStore } from "../../../../lib/agent/jobStore";
-import { runAgentJob, type JobRunEvent } from "../../../../lib/agent/runner";
+import { runAgentJob } from "../../../../lib/agent/runner";
+import { serializeJobEvent } from "../../../../lib/job/events";
+import type { JobEvent } from "../../../../lib/job/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,26 +46,6 @@ async function scanWorkspaceVision(ws: WorkspaceManager): Promise<boolean> {
     }
   } catch {}
   return visionMd;
-}
-
-/** 把 Runner 的收敛事件转回当前 wire 事件类型（前端兼容；Phase E 收敛 union 后简化）。 */
-function toWire(event: JobRunEvent): Record<string, unknown> | null {
-  switch (event.type) {
-    case "tool":
-      return { type: "agent_tool", name: event.name, ...(event.detail ? { detail: event.detail } : {}) };
-    case "text":
-      return { type: "agent_text", text: event.text };
-    case "result":
-      return { type: "agent_result", result: event.result };
-    case "artifacts":
-      return { type: "artifacts", files: event.files };
-    case "done":
-      return { type: "done", exitCode: event.exitCode ?? 0, durationMs: event.durationMs };
-    case "error":
-      return { type: "agent_error", message: event.message };
-    case "job_status":
-      return null; // 当前前端不消费；Phase G Job UI 消费
-  }
 }
 
 export async function POST(request: Request) {
@@ -105,10 +87,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = (s: string) => controller.enqueue(new TextEncoder().encode(s));
-      const emitWire = (event: JobRunEvent) => {
-        const line = toWire(event);
-        if (line) enc(JSON.stringify(line) + "\n");
-      };
+      const emitWire = (event: JobEvent) => enc(serializeJobEvent(event));
       try {
         await runAgentJob(
           {
@@ -129,7 +108,7 @@ export async function POST(request: Request) {
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        enc(JSON.stringify({ type: "agent_error", message: message || "文件处理失败" }) + "\n");
+        enc(serializeJobEvent({ type: "error", code: "internal", message: message || "文件处理失败" }));
       }
       controller.close();
     },

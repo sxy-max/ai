@@ -64,8 +64,8 @@ test("1. 正常流：任务说明写入、事件透传、artifacts 登记、job 
   assert.equal(outcome.artifactCount, 1);
   assert.equal(store.get("job1")?.status, "done");
   assert.equal(store.get("job1")?.artifactCount, 1);
-  // 事件顺序：queued/running → tool/text/artifacts/done → done(job_status)
-  assert.deepEqual(forwarded, ["job_status", "job_status", "tool", "text", "artifacts", "done", "job_status"]);
+  // 事件顺序：queued → creating_workspace → reading_files → tool → progress → artifact → done → status(done)
+  assert.deepEqual(forwarded, ["status", "status", "status", "tool", "progress", "artifact", "done", "status"]);
   // 任务说明写入 workspace
   const taskMd = fs.readFileSync(path.join(ws.dirs.task, "task.md"), "utf8");
   assert.ok(taskMd.includes("把报告改成中文"));
@@ -95,7 +95,7 @@ test("2. 失败（超时）：job failed、保留 error、仍发出错误事件"
   assert.equal(store.get("job2")?.status, "failed");
   assert.equal(store.get("job2")?.error, "sandbox_timeout");
   assert.ok(forwarded.includes("error"));
-  assert.equal(forwarded.at(-1), "job_status");
+  assert.equal(forwarded.at(-1), "status");
 });
 
 test("3. adapter 抛异常 → 也标记 failed 而非崩掉", async () => {

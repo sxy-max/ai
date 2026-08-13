@@ -447,12 +447,13 @@ export default function Home() {
           if (!t) continue;
           let ev: any;
           try { ev = JSON.parse(t); } catch { continue; }
-          if (ev.type === "agent_tool") statusLine = "正在" + toolLabel(ev.name) + "…";
-          else if (ev.type === "agent_text" && ev.text) agentText += ev.text;
-          else if (ev.type === "agent_result" && ev.result && !agentText) agentText = ev.result;
-          else if (ev.type === "artifacts" && Array.isArray(ev.files)) artifacts = ev.files.map((f: any) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size, downloadUrl: `/api/artifacts/${f.id}` }));
+          if (ev.type === "status") statusLine = ev.status === "done" || ev.status === "failed" ? ev.message : "正在" + ev.message + "…";
+          else if (ev.type === "tool") statusLine = "正在" + (ev.label || toolLabel(ev.name)) + "…";
+          else if (ev.type === "progress" && ev.detail) agentText += ev.detail;
+          else if (ev.type === "result" && ev.summary && !agentText) agentText = ev.summary;
+          else if (ev.type === "artifact" && ev.artifact) artifacts = [...artifacts, { id: ev.artifact.id, name: ev.artifact.name, mime: ev.artifact.mime, size: ev.artifact.size, downloadUrl: `/api/artifacts/${ev.artifact.id}` }];
           else if (ev.type === "done") statusLine = ev.exitCode === 0 ? "已完成" : "处理未完全完成，已保留当前结果";
-          else if (ev.type === "agent_error") { statusLine = "处理失败"; agentText += "\n\n[错误] " + String(ev.message || ""); }
+          else if (ev.type === "error") { statusLine = "处理失败"; agentText += "\n\n[错误] " + String(ev.message || ""); }
           paint();
         }
       }

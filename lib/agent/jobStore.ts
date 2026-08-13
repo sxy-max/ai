@@ -1,10 +1,12 @@
 /**
- * JobStore：Agent 运行的轻量持久化实体。
- * job 是服务端一等对象（非流上临时状态）；完整状态机/事件追加在 Job Event Stream 阶段细化。
- * 当前为进程内存储 + TTL 清理；workspace 与 Artifact Service 才是跨重启的持久化层。
+ * JobStore：Agent 任务的进程内持久化实体。
+ * 状态机走完整 JobStatus union（Job Event Stream 定义）；job 是服务端一等对象，
+ * workspace 与 Artifact Service 才是跨重启的持久化层。
  */
 
-export type JobStatus = "queued" | "running" | "done" | "failed";
+import type { JobStatus } from "../job/events";
+
+export type { JobStatus };
 
 export type JobRecord = {
   id: string;
@@ -39,17 +41,16 @@ export class JobStore {
     return conversationId ? all.filter((job) => job.conversationId === conversationId) : all;
   }
 
-  /** 进入 running；已终结的 job 不做状态迁移（返回 null）。 */
-  start(id: string): JobRecord | null {
-    return this.transition(id, "running", { startedAt: Date.now() });
-  }
-
-  complete(id: string, patch: { exitCode?: number; artifactCount?: number } = {}): JobRecord | null {
-    return this.transition(id, "done", { finishedAt: Date.now(), ...patch });
-  }
-
-  fail(id: string, error: string, artifactCount?: number): JobRecord | null {
-    return this.transition(id, "failed", { finishedAt: Date.now(), error, ...(artifactCount !== undefined ? { artifactCount } : {}) });
+  /** 状态迁移：已终结的 job 拒绝任何后续迁移（返回 null）；首条非 queued 记录 startedAt。 */
+  updateStatus(id: string, status: JobStatus, patch: Partial<JobRecord> = {}): JobRecord | null {
+    const current = this.jobs.get(id);
+    if (!current) return null;
+    if (TERMINAL.has(current.status) && status !== current.status) return null;
+    const startedAt = current.status === "queued" && status !== "queued" && !current.startedAt ? Date.now() : current.startedAt;
+    const finishedAt = TERMINAL.has(status) ? Date.now() : current.finishedAt;
+    const next = { ...current, ...patch, status, startedAt, finishedAt };
+    this.jobs.set(id, next);
+    return next;
   }
 
   cleanupExpired(now: number = Date.now()): number {
@@ -61,14 +62,5 @@ export class JobStore {
       }
     }
     return removed;
-  }
-
-  private transition(id: string, status: JobStatus, patch: Partial<JobRecord>): JobRecord | null {
-    const current = this.jobs.get(id);
-    if (!current) return null;
-    if (TERMINAL.has(current.status) && status !== current.status) return null;
-    const next = { ...current, ...patch, status };
-    this.jobs.set(id, next);
-    return next;
   }
 }
