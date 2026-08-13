@@ -242,6 +242,13 @@ export default function Home() {
     } catch {}
     setConversations(restoredConversations);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(restoredConversations)); } catch {}
+    // 刷新后恢复最近对话为当前会话（历史/Artifact 刷新仍可见）
+    const recent = restoredConversations[0];
+    if (recent) {
+      setCurrentId(recent.id);
+      setMessages(Array.isArray(recent.messages) ? recent.messages : []);
+      setModel(typeof recent.model === "string" ? recent.model : "");
+    }
     if (setRaw) try {
       const s = JSON.parse(setRaw);
       if (["off", "auto", "on"].includes(s.searchMode)) setSearchMode(s.searchMode);

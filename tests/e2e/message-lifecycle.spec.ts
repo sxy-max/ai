@@ -43,7 +43,9 @@ test("TEST3 连续第二轮", async ({ page }) => {
   await sendPrompt(page, "第一轮问题");
   await expect(page.locator(".msg-parts.assistant .msg-text").last()).toContainText("最终回答", { timeout: 20_000 });
   await sendPrompt(page, "把上面的答案压缩成三句话");
-  await expect(page.locator(".msg-parts.assistant .msg-text").last()).toContainText("你好", { timeout: 20_000 });
+  // 第二轮应新增一条 assistant 消息并正常流式返回（mock-reasoning-final 仍是"最终回答…"）
+  await expect(page.locator(".msg-parts.assistant")).toHaveCount(2, { timeout: 20_000 });
+  await expect(page.locator(".msg-parts.assistant .msg-text").last()).toContainText("临界角速度", { timeout: 20_000 });
   await expect(page.locator("body")).not.toContainText("Empty messages are not allowed");
 });
 
@@ -58,7 +60,10 @@ test("TEST5 assistant KaTeX", async ({ page }) => {
   await selectModel(page, "mock-katex");
   await sendPrompt(page, "输出公式");
   await expect(page.locator(".msg-parts.assistant .msg-text .katex-display")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".msg-parts.assistant .msg-text")).not.toContainText("\\Omega=");
+  // KaTeX 的隐藏 <annotation> 含原始 TeX（可访问性/复制用，视觉不可见）；
+  // 用 innerText 验证用户看到的文本不泄漏 raw LaTeX
+  const visible = await page.locator(".msg-parts.assistant .msg-text").innerText();
+  expect(visible).not.toContain("\\Omega=");
 });
 
 test("TEST6 HTML>100 → artifact", async ({ page }) => {
