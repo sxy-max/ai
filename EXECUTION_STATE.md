@@ -25,7 +25,7 @@
 - 线上回归全绿：公网200 / 登录 / 模型7个 / kimi 真实流式 / **glm无视觉+图片→MiniMax→回答** / personalization+skills 注入 / File Agent 上传→任务→artifact
 
 ## 待做（按依赖排序）
-1. Stabilization 收尾：真实模型多轮（线上回归已单轮）、公网浏览器视觉验证、长对话上下文压测
+1. Stabilization 收尾：公网浏览器视觉回归（可选）、长对话上下文压测
 2. 长期 backlog：语音（Conditional/Future）、sandbox Bash（独立阶段）、真实模型差异回归
 
 ## Blocked
@@ -33,12 +33,12 @@
 
 ## 已验证
 - 云端（历史）：File Agent 三测试、ZIP、vision→file、Artifact 下载、安全 8-10、重启恢复
-- **云端（本次部署回归）**：vision-chat 预处理、真实流式聊天（kimi meta+reasoning+text+done）、personalization/skills 注入、File Agent 链路、公网 200
+- **云端（本次部署回归）**：vision-chat 预处理、真实流式聊天（kimi meta+reasoning+text+done）、**真实模型多轮上下文（kimi 两轮回忆暗号）**、personalization/skills 注入、File Agent 链路、公网 200
 - 本地：typecheck/build/单测 41/41、**E2E 13/13 全过**（reasoning/KaTeX/artifact/复制/高亮/设置/个性化/迁移/移动端）
 - E2E 基础设施根治：Next16 allowedDevOrigins + reuse=false + globalSetup 预热 + selectModel 按 value
 
 ## 未验证
-- 手机端浏览器物理验证（viewport E2E 已过）、真实模型多轮、公网浏览器视觉回归
+- 公网浏览器物理视觉回归（API 层已回归；UI 由 E2E mock 覆盖）、长对话上下文压测
 
 ## Stabilization Backlog
 - ~~E2E "Target crashed"~~ 根因已修复：Next16 dev 跨源保护（allowedDevOrigins 未含 127.0.0.1 → 浏览器 Origin 头的 chunk/HMR 请求 403，app 不 hydrate；curl 无 Origin 故正常）。已加 allowedDevOrigins + globalSetup 预热
