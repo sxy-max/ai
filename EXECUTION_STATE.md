@@ -15,8 +15,9 @@
 - 代码高亮 + 复制：MessageParts rehype-highlight + CodeBlock 一键复制（修复了原 page.tsx 死代码，复制从未生效）+ hljs token 双主题调色板
 - 数学分隔符：lib/math.ts normalizeMathDelimiters（remark-math6 不识别 \(...\)/\[...\]，LaTeX 惯用转 $，跳过代码围栏）
 - 刷新恢复：reload 后自动恢复最近对话（Artifact 历史可见）
-- **E2E 全量 9/9 通过**（12s）：reasoning 折叠/重试/多轮/user+assistant KaTeX/HTML artifact/刷新持久/代码高亮+复制/message 复制
-- 本地：lib/message/{types,lifecycle,transform}.ts、单测 40/40 过、typecheck/build 过
+- **E2E 13/13 全过**（12s）：reasoning 折叠/重试/多轮/user+assistant KaTeX/HTML artifact/刷新持久/代码高亮+复制/message 复制/Settings+主题/个性化记忆/旧格式迁移/移动端
+- Stabilization：storageSafeMessages 补旧消息 id（修 React key 警告）、旧 schema 迁移 E2E、KaTeX 复杂公式单测、移动端布局 E2E
+- 本地：lib/message/{types,lifecycle,transform}.ts、单测 41/41 过、typecheck/build 过
 
 ## 正在做
 - 云端部署已上线（2026-08-13）：git push → tar/scp → docker build → 替换容器（保留 go-ai-net/unless-stopped/2GB//data volume/env-file）
