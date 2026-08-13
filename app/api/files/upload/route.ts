@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { accessConfigurationError, isAuthorized } from "../../../../lib/auth";
-import fs from "node:fs";
 import path from "node:path";
+import { registerWorkspaceManifest } from "../../../../lib/files/processor";
+import { WorkspaceManager } from "../../../../lib/workspace/service";
+import { safeExtractZip } from "../../../../lib/workspace/zip";
+import { WorkspaceError } from "../../../../lib/workspace/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,9 +33,9 @@ export async function POST(request: Request) {
   const job = String(new URL(request.url).searchParams.get("jobId") || "default")
     .replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "default";
 
-  const wsDir = path.join(WORKSPACES_ROOT, conv, job);
+  const ws = new WorkspaceManager(path.join(WORKSPACES_ROOT, conv, job));
   try {
-    fs.mkdirSync(wsDir, { recursive: true });
+    ws.createWorkspace();
   } catch {
     return NextResponse.json({ error: "Workspace 创建失败" }, { status: 500 });
   }
@@ -44,18 +47,27 @@ export async function POST(request: Request) {
   if (files.length > MAX_FILES) return NextResponse.json({ error: "一次最多 20 个文件" }, { status: 400 });
 
   const results: { fileRef: string; name: string; mime: string; size: number }[] = [];
-  for (const f of files) {
-    const ext = path.extname(f.name).toLowerCase();
-    if (!ALLOWED_EXT.has(ext)) return NextResponse.json({ error: `不支持的文件类型: ${ext}` }, { status: 400 });
-    if (f.size > MAX_FILE_BYTES) return NextResponse.json({ error: `${f.name} 超过 20MB` }, { status: 413 });
-    const safe = safeName(f.name);
-    const dest = path.join(wsDir, safe);
-    if (!dest.startsWith(wsDir + path.sep) && dest !== wsDir) {
-      return NextResponse.json({ error: "非法路径" }, { status: 400 });
+  try {
+    for (const f of files) {
+      const ext = path.extname(f.name).toLowerCase();
+      if (!ALLOWED_EXT.has(ext)) return NextResponse.json({ error: `不支持的文件类型: ${ext}` }, { status: 400 });
+      if (f.size > MAX_FILE_BYTES) return NextResponse.json({ error: `${f.name} 超过 20MB` }, { status: 413 });
+      const safe = safeName(f.name);
+      const buf = Buffer.from(await f.arrayBuffer());
+      if (ext === ".zip") {
+        await safeExtractZip(buf, ws.dirs.input, ws.limits);
+        results.push({ fileRef: `${conv}/${job}/${safe}`, name: safe, mime: f.type || "application/zip", size: buf.length });
+      } else {
+        ws.writeInputFile(safe, buf);
+        results.push({ fileRef: `${conv}/${job}/${safe}`, name: safe, mime: f.type || "application/octet-stream", size: buf.length });
+      }
     }
-    const buf = Buffer.from(await f.arrayBuffer());
-    fs.writeFileSync(dest, buf);
-    results.push({ fileRef: `${conv}/${job}/${safe}`, name: safe, mime: f.type || "application/octet-stream", size: buf.length });
+    registerWorkspaceManifest(ws);
+  } catch (e) {
+    if (e instanceof WorkspaceError) {
+      return NextResponse.json({ error: `文件处理被拒绝: ${e.message}` }, { status: 400 });
+    }
+    return NextResponse.json({ error: "文件处理失败" }, { status: 500 });
   }
   return NextResponse.json({ files: results, conversationId: conv, jobId: job });
 }

@@ -5,6 +5,8 @@ import path from "node:path";
 import { describeImageBase64 } from "../../../../lib/vision";
 import { artifactService } from "../../../../lib/artifacts/service";
 import type { ClientArtifact } from "../../../../lib/artifacts/types";
+import { WorkspaceManager } from "../../../../lib/workspace/service";
+import { walkWorkspace } from "../../../../lib/workspace/safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,23 +35,25 @@ export async function POST(request: Request) {
   }
   const conv = String(body.conversationId || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "default";
   const job = String(body.jobId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "default";
-  const ws = path.join(WORKSPACES_ROOT, conv, job);
+  const ws = new WorkspaceManager(path.join(WORKSPACES_ROOT, conv, job));
+  try {
+    ws.createWorkspace();
+  } catch {
+    return NextResponse.json({ error: "Workspace 创建失败" }, { status: 500 });
+  }
 
-  // Vision: 扫描 workspace 中的图片 → MiniMax 描述 → 写入 .go-ai/vision/
+  // Vision: 扫描 workspace（input/ 与遗留根目录）图片 → MiniMax 描述 → 写入 .go-ai/vision/
   let visionMd = false;
   try {
-    if (fs.existsSync(ws)) {
-      for (const f of fs.readdirSync(ws)) {
-        if (/\.(png|jpe?g|gif|webp)$/i.test(f)) {
-          const desc = await describeImage(path.join(ws, f));
-          if (desc) {
-            const vDir = path.join(ws, ".go-ai", "vision");
-            fs.mkdirSync(vDir, { recursive: true });
-            const base = path.basename(f, path.extname(f));
-            fs.writeFileSync(path.join(vDir, base + ".md"), desc);
-            visionMd = true;
-          }
-        }
+    const images = walkWorkspace(ws.root).filter((f) => !f.isLink && /\.(png|jpe?g|gif|webp)$/i.test(f.relPath));
+    for (const f of images) {
+      const desc = await describeImage(f.absPath);
+      if (desc) {
+        const vDir = path.join(ws.dirs.internal, "vision");
+        fs.mkdirSync(vDir, { recursive: true });
+        const base = path.basename(f.relPath, path.extname(f.relPath));
+        fs.writeFileSync(path.join(vDir, base + ".md"), desc);
+        visionMd = true;
       }
     }
   } catch {}
@@ -110,8 +114,8 @@ export async function POST(request: Request) {
             if (ev.type === "artifacts" && Array.isArray(ev.files)) {
               const items: ClientArtifact[] = [];
               for (const f of ev.files) {
-                const src = path.join(ws, String(f.name || ""));
-                if (!src.startsWith(ws + path.sep) || !fs.existsSync(src)) continue;
+                const src = path.join(ws.root, String(f.name || ""));
+                if (!src.startsWith(ws.root + path.sep) || !fs.existsSync(src)) continue;
                 try {
                   const a = artifactService.createArtifact({
                     filename: String(f.name || "download"),

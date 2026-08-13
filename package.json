@@ -19,6 +19,7 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "katex": "^0.18.4",
     "next": "16.3.0",
     "pdfjs-dist": "5.4.54",
