@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
 import { accessConfigurationError, isAuthorized } from "../../../lib/auth";
 import { classifyTask, type ClassifyInput } from "../../../lib/taskRouter";
+import { generateArtifact, isGeneratorKind } from "../../../lib/generators/registry";
+import { artifactService } from "../../../lib/artifacts/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * 任务分类接口（Phase A）：只返回分类结果，不执行任何任务。
- * 不调用模型、不调用 File Agent、不生成 Artifact。
+ * 任务分类 + Artifact 生成接口（Phase A 分类 → Phase F 执行）。
+ * 对支持确定性生成的 artifact 任务（pptx/html/csv/markdown）直接产出文件，
+ * 全程不依赖沙箱、不调用模型。
  *
  * POST /api/tasks
- * body: { message, attachments, model?, settings? }
- * ok:   { ok: true, intent: TaskIntent }
- * err:  { ok: false, error: string }
+ * body: { message, attachments?, model?, settings? }
+ * ok:   { ok: true, intent, artifacts?: ClientArtifact[] }
+ * err:  { ok: false, error }
  */
 export async function POST(request: Request) {
   const confErr = accessConfigurationError();
@@ -35,5 +38,23 @@ export async function POST(request: Request) {
   if (!intent) {
     return NextResponse.json({ ok: false, error: "空输入且无附件，无可分类内容" }, { status: 400 });
   }
+
+  if (intent.type === "artifact" && intent.artifactKind && isGeneratorKind(intent.artifactKind)) {
+    try {
+      const output = await generateArtifact(intent.artifactKind, { message: body.message });
+      const artifact = artifactService.createArtifact({
+        filename: output.filename,
+        content: output.content,
+        kind: output.kind,
+        mimeType: output.mime,
+        source: "artifact_task",
+      });
+      return NextResponse.json({ ok: true, intent, artifacts: [artifactService.serializeArtifactForClient(artifact)] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return NextResponse.json({ ok: false, intent, error: `文件生成失败：${message}` }, { status: 500 });
+    }
+  }
+
   return NextResponse.json({ ok: true, intent });
 }

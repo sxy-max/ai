@@ -334,6 +334,60 @@ try {
   });
   assert.equal(forbidden.status, 403);
 
+  // Phase F：/api/tasks 对 artifact 任务实际执行确定性生成（不依赖沙箱/模型）
+  const pptxTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ message: "做两页 PPT：Go AI 文件处理功能" })
+  });
+  assert.equal(pptxTask.status, 200);
+  const pptxTaskData = await pptxTask.json();
+  assert.equal(pptxTaskData.ok, true);
+  assert.equal(pptxTaskData.intent.artifactKind, "pptx");
+  assert.ok(Array.isArray(pptxTaskData.artifacts) && pptxTaskData.artifacts.length === 1);
+  const pptxArtifact = pptxTaskData.artifacts[0];
+  assert.equal(pptxArtifact.kind, "pptx");
+  assert.match(pptxArtifact.name, /\.pptx$/);
+  const pptxContent = await fetch(`http://127.0.0.1:${appPort}${pptxArtifact.downloadUrl}`, { headers: { cookie } });
+  assert.equal(pptxContent.status, 200);
+  const pptxBuf = Buffer.from(await pptxContent.arrayBuffer());
+  assert.ok(pptxBuf.length > 500, "pptx 过小");
+  assert.deepEqual(pptxBuf.subarray(0, 2), Buffer.from("PK"), "应为 zip");
+
+  const htmlTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ message: "生成一个网页，标题：Go AI，内容包含 <script>alert(1)</script> 需要转义" })
+  });
+  assert.equal(htmlTask.status, 200);
+  const htmlTaskData = await htmlTask.json();
+  assert.equal(htmlTaskData.artifacts[0].kind, "html");
+  const htmlText = await (await fetch(`http://127.0.0.1:${appPort}${htmlTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
+  assert.ok(htmlText.includes("&lt;script&gt;"), "HTML 未转义");
+
+  const csvTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ message: "导出 csv：\n名字,年龄\n张三,28\n=SUM(A1:A9),30" })
+  });
+  assert.equal(csvTask.status, 200);
+  const csvTaskData = await csvTask.json();
+  assert.equal(csvTaskData.artifacts[0].kind, "csv");
+  const csvText = await (await fetch(`http://127.0.0.1:${appPort}${csvTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
+  assert.ok(!csvText.includes(",=SUM"), "CSV 公式注入未中和");
+  assert.ok(csvText.includes("'=SUM"), "CSV 公式应被撇号前缀");
+
+  const mdTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ message: "写一份 markdown 文档，主题：Go AI" })
+  });
+  assert.equal(mdTask.status, 200);
+  const mdTaskData = await mdTask.json();
+  assert.equal(mdTaskData.artifacts[0].kind, "markdown");
+  const mdText = await (await fetch(`http://127.0.0.1:${appPort}${mdTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
+  assert.ok(mdText.startsWith("# "), "Markdown 应为 # 开头");
+
   assert.ok(observations.goHeaders.length >= 11);
   assert.ok(observations.anthropicHeaders.length >= 4);
   assert.equal(observations.goResponsePayloads.length, 4);
@@ -341,7 +395,7 @@ try {
   assert.equal(observations.goMessagePayloads.length, 2);
   assert.equal(observations.visionPayloads.length, 2);
   assert.equal(observations.anthropicPayloads.length, 3);
-  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, and vision-preprocessed images");
+  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, and artifact generators (pptx/html/csv/md)");
 } finally {
   if (nextProcess && !nextProcess.killed) nextProcess.kill();
   await new Promise((resolve) => providerServer.close(resolve));

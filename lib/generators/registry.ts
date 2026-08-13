@@ -1,0 +1,27 @@
+/** Artifact 生成器注册表：kind → 确定性生成器。 */
+
+import type { ArtifactKind } from "../artifacts/types";
+import { generateCsv } from "./csv";
+import { generateHtml } from "./html";
+import { generateMarkdown } from "./markdown";
+import { generatePptx } from "./pptx";
+import { isGeneratorKind, GeneratorError, type ArtifactGenerator, type GeneratorInput, type GeneratorOutput } from "./types";
+
+const REGISTRY: Partial<Record<ArtifactKind, ArtifactGenerator>> = {
+  pptx: generatePptx,
+  html: generateHtml,
+  csv: generateCsv,
+  markdown: generateMarkdown,
+};
+
+export { isGeneratorKind } from "./types";
+
+/** 按 kind 生成产物；不支持的 kind 抛 GeneratorError("unsupported_kind")。 */
+export async function generateArtifact(kind: ArtifactKind, input: GeneratorInput): Promise<GeneratorOutput> {
+  if (!isGeneratorKind(kind)) {
+    throw new GeneratorError("unsupported_kind", `暂不支持确定性生成 ${kind} 文件`);
+  }
+  const generator = REGISTRY[kind];
+  if (!generator) throw new GeneratorError("unsupported_kind", `缺少 ${kind} 生成器`);
+  return generator(input);
+}

@@ -8,6 +8,7 @@ import { transformContent } from "../lib/artifacts/transform";
 import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, selectRelevantSkills, type PersonalizationProfile } from "../lib/personalization";
 import { isFileTaskPrompt, resolveTaskTools } from "../lib/toolRegistry";
 import { classifyTask } from "../lib/taskRouter";
+import { isGeneratorKind } from "../lib/generators/types";
 async function copyText(text: string) {
   try {
     if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
@@ -31,10 +32,6 @@ type FileTaskInfo = { id: string; file: File };
 function toolLabel(n: string) {
   const m: Record<string, string> = { Read: "读取文件", Write: "写入文件", Edit: "修改文件", Glob: "查找文件", Grep: "搜索内容", Bash: "执行命令" };
   return m[n] || "处理文件";
-}
-function artifactKindLabel(k: string) {
-  const m: Record<string, string> = { pptx: "PPT", html: "HTML", csv: "CSV", markdown: "Markdown", json: "JSON", txt: "文本", zip: "ZIP" };
-  return m[k] || "文件";
 }
 function fmtSize(b: number) { if (b < 1024) return b + " B"; if (b < 1048576) return (b / 1024).toFixed(1) + " KB"; return (b / 1048576).toFixed(1) + " MB"; }
 type ModelInfo = { key: string; id: string; displayName: string; provider: Provider; modelToken: string; protocol: "chat" | "messages" | "responses" | "anthropic" | null; supported: boolean; reasoning: true | false | "unknown"; vision: true | false | "unknown"; files: string; web: string; providerMeta?: any; featuredRank?: number | null; useCase?: string | null; temperaturePolicy?: { mode: "fixed" | "range" | "unsupported"; value?: number; min?: number; max?: number }; reasoningPolicy?: "instruct" | "none" };
@@ -520,19 +517,43 @@ export default function Home() {
 
     const intent = classifyTask({ message: input.trim(), attachments });
 
-    if (intent && intent.type === "artifact" && intent.artifactKind !== "html") {
+    if (intent && intent.type === "artifact" && isGeneratorKind(intent.artifactKind)) {
       setBusy(true); setError("");
-      const label = intent.artifactKind && intent.artifactKind !== "unknown" ? `（${artifactKindLabel(intent.artifactKind)}）` : "";
-      const placeholder = intent.artifactKind === "pptx"
-        ? "已识别为 PPTX Artifact 任务，PPTX 生成器将在下一阶段接入。"
-        : `已识别为文件生成任务${label}：文件生成器将在下一阶段接入，本阶段请先用普通对话描述内容需求。`;
-      const assistant: Message = { id: uid(), role: "assistant", content: placeholder };
+      const assistant: Message = { id: uid(), role: "assistant", content: "正在生成文件…" };
       setMessages((prev) => [...prev, assistant]);
+      try {
+        const r = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: input.trim(),
+            attachments: attachments.map((a) => ({ kind: a.kind, mime: a.mime, name: a.name })),
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || "文件生成失败");
+        if (Array.isArray(data.artifacts) && data.artifacts.length) {
+          const artifacts = data.artifacts.map((a: any) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, downloadUrl: `/api/artifacts/${a.id}` }));
+          setMessages((prev) => {
+            const out = prev.slice();
+            const last = out[out.length - 1];
+            if (last && last.role === "assistant") out[out.length - 1] = { ...last, content: "文件已生成：", artifacts };
+            return out;
+          });
+        } else {
+          setMessages((prev) => prev.slice(0, -1));
+          setError("该文件类型暂不支持生成，已回退。");
+        }
+      } catch (e: any) {
+        setMessages((prev) => prev.slice(0, -1));
+        setError("文件生成失败：" + (e?.message || e));
+      }
       setBusy(false);
+      setInput(""); setAttachments([]);
       return;
     }
 
-    const useLegacy = !intent || (intent.type === "artifact" && intent.artifactKind === "html");
+    const useLegacy = !intent || intent.type !== "artifact" || !isGeneratorKind(intent.artifactKind);
     if (intent?.type === "agent_workspace" || (useLegacy && isFileTaskPrompt(input.trim(), attachments.length > 0))) {
       setBusy(true); setError("");
       const convId = currentId && currentId !== "new" ? currentId : "c_" + uid().slice(0, 10);
