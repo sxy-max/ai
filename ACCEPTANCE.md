@@ -11,9 +11,9 @@ Feature Build 完成标准（全部 IMPLEMENTED）。状态: [x]=已实现, [~]=
 - [x] Markdown
 - [x] KaTeX
 - [x] 表格
-- [~] 代码高亮（rehype-highlight + hljs 双主题 token，E2E 验证中）
-- [~] 一键复制（message + code，E2E 验证中）
-- [~] 自动主题（system/light/dark，CSS tokens 双主题，待浏览器验证）
+- [x] 代码高亮（rehype-highlight + hljs 双主题 token，E2E 验证）
+- [x] 一键复制（message + code，E2E 验证）
+- [x] 自动主题（system/light/dark，CSS tokens 双主题，E2E 验证）
 - [x] 图片粘贴
 - [x] 图片上传
 - [x] MiniMax Vision（独立链路）
@@ -27,7 +27,7 @@ Feature Build 完成标准（全部 IMPLEMENTED）。状态: [x]=已实现, [~]=
 - [x] File Agent（Claude Code headless）
 - [x] 文件真实编辑（Read/Edit/Write）
 - [x] ZIP 项目处理
-- [~] Artifact 历史（刷新可见）
+- [x] Artifact 历史（刷新可见，E2E TEST7 验证）
 - [~] Memory（localStorage，CRUD/启停）
 - [~] Response Style（4 预设 + 自定义，独立注入）
 - [~] 用户 Skills（SKILL.md 导入/启停）
