@@ -31,7 +31,11 @@ export type ToolDef = {
   trigger?: (prompt: string, ctx: TaskContext) => boolean;
 };
 
-/* ---------- 任务触发器（从 page.tsx 收敛到此，单一决策源） ---------- */
+/* ---------- 任务触发器 ----------
+ * 主分类在 lib/taskRouter.ts（Task Router / classifyTask）。
+ * isFileTaskPrompt 保留为辅助信号与兼容 fallback：供 file_agent
+ * 工具的 trigger 使用，以及前端在 classifyTask 不可用时的旧逻辑回退。
+ */
 
 const FILE_TASK_HINTS = ["修改这个", "编辑", "改一下", "改成", "改背景", "生成一个", "创建", "给我文件", "发文件", "生成 index", "帮我修", "处理这个", "根据截图", "按照截图", "修一下", "这个项目", "处理代码", "改一下这个", "改成浅色", "改成深色", "改颜色"];
 
