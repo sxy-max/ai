@@ -42,6 +42,8 @@ export async function GET(request: Request) {
 
   const goKey = process.env.OPENCODE_GO_API_KEY || "";
   const anthropicKey = process.env.ANTHROPIC_API_KEY || "";
+  const E2E = process.env.E2E_MODE === "1" && process.env.NODE_ENV !== "production";
+  const MOCK_MODELS = ["mock-lifecycle", "mock-reasoning-final", "mock-reasoning-only", "mock-html-150", "mock-katex", "mock-code"];
   const [goResult, anthropicResult] = await Promise.allSettled([
     goKey ? listOpenCodeModels(goKey, request.signal) : Promise.resolve([] as RawOpenCodeModel[]),
     anthropicKey ? listAnthropicModels(anthropicKey, request.signal) : Promise.resolve([] as AnthropicModel[])
@@ -52,16 +54,15 @@ export async function GET(request: Request) {
   const anthropicModels = anthropicResult.status === "fulfilled" ? anthropicResult.value : [];
   if (goResult.status === "rejected") providerErrors["opencode-go"] = errorMessage(goResult.reason, "OpenCode Go models unavailable");
   if (anthropicResult.status === "rejected") providerErrors.anthropic = errorMessage(anthropicResult.reason, "Anthropic models unavailable");
-  if (!goKey && !anthropicKey) return NextResponse.json({ error: "Configure OPENCODE_GO_API_KEY or ANTHROPIC_API_KEY" }, { status: 503 });
-  if (!goModels.length && !anthropicModels.length) {
+  if (!goKey && !anthropicKey && !E2E) return NextResponse.json({ error: "Configure OPENCODE_GO_API_KEY or ANTHROPIC_API_KEY" }, { status: 503 });
+  if (!goModels.length && !anthropicModels.length && !E2E) {
     return NextResponse.json({ error: "No model provider is currently available", providerErrors }, { status: 502 });
   }
 
   const claudeFeatured = featuredAnthropicModelIds(anthropicModels);
-  const E2E = process.env.E2E_MODE === "1" && process.env.NODE_ENV !== "production";
-  const MOCK_MODELS = ["mock-lifecycle", "mock-reasoning-final", "mock-reasoning-only", "mock-html-150", "mock-katex", "mock-code"];
   const featuredIds = featuredModelIds(claudeFeatured);
   const featured = new Set(featuredIds);
+  if (E2E) for (const id of MOCK_MODELS) featured.add(id);
   const allowOther = allowOtherModels();
 
   const normalizedGo = goModels.map((raw) => {
