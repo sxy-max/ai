@@ -12,6 +12,7 @@ const MAX_FILES = 20;
 const ALLOWED_EXT = new Set([
   ".html", ".css", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".txt",
   ".py", ".sh", ".yaml", ".yml", ".csv", ".xml", ".svg", ".zip",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp",
 ]);
 
 function safeName(name: string) {
