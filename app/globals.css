@@ -235,3 +235,26 @@
 .pz-custom label{display:flex;flex-direction:column;gap:6px;color:var(--muted-2);font-size:11px;font-weight:800;margin-bottom:10px}
 .pz-custom textarea{width:100%;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text-2);border-radius:9px;padding:9px 10px;font-size:13px;resize:vertical;outline:none}
 .pz-note{margin:0;color:var(--muted-3);font-size:11px;line-height:1.55}
+
+/* Job Event UI — 任务状态卡 */
+.job-card{border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:11px 14px;margin-bottom:10px;max-width:100%}
+.job-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.job-badge{font-size:12px;font-weight:800;border-radius:999px;padding:3px 11px}
+.job-tool{font-size:12px;color:var(--muted-2);white-space:nowrap}
+.job-progress{height:5px;border-radius:999px;background:var(--surface-4);margin-top:9px;overflow:hidden}
+.job-progress-bar{height:100%;border-radius:999px;background:linear-gradient(90deg,#6b74ff,#45d7be);transition:width .3s ease}
+.job-progress-text{font-size:12px;color:var(--muted-2);line-height:1.6;margin-top:8px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.job-result{font-size:12px;color:var(--text-3);margin-top:8px;white-space:pre-wrap;word-break:break-word}
+.job-error-text{font-size:12px;color:var(--danger);margin-top:8px;white-space:pre-wrap;word-break:break-word}
+.job-idle .job-badge{background:var(--surface-4);color:var(--muted-2)}
+.job-active .job-badge{background:rgba(101,112,255,.16);color:#aeb4ff}
+.job-success .job-badge{background:rgba(69,215,190,.16);color:#54e0c4}
+.job-error .job-badge{background:rgba(255,138,138,.14);color:var(--danger)}
+.job-error{border-color:rgba(255,138,138,.3)}
+
+/* Artifact 预览 */
+.artifact-html{flex-direction:column;align-items:stretch;width:min(560px,100%)}
+.artifact-html-frame{width:100%;height:260px;border:1px solid var(--border);border-radius:8px;background:#fff}
+.artifact-image{flex-direction:column;align-items:flex-start;gap:8px;width:fit-content}
+.artifact-thumb{max-width:min(420px,100%);max-height:320px;border-radius:8px;border:1px solid var(--border)}
+.artifact-pending{opacity:.75}

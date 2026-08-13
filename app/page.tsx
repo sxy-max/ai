@@ -9,6 +9,8 @@ import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, 
 import { isFileTaskPrompt, resolveTaskTools } from "../lib/toolRegistry";
 import { classifyTask } from "../lib/taskRouter";
 import { isGeneratorKind } from "../lib/generators/types";
+import { applyJobEvent, INITIAL_JOB } from "../lib/job/ui";
+import type { JobState } from "../lib/job/ui";
 async function copyText(text: string) {
   try {
     if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
@@ -25,7 +27,7 @@ async function copyText(text: string) {
 type Provider = "opencode-go" | "anthropic";
 type Attachment = { id: string; name: string; mime: string; kind: "text" | "image"; text?: string; dataUrl?: string; originalChars?: number; contextChars?: number; compressed?: boolean };
 type WebSource = { title: string; url: string; summary?: string; content?: string };
-type Message = { id: string; role: "user" | "assistant"; content: string; status?: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; visionUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[]; artifacts?: Artifact[] };
+type Message = { id: string; role: "user" | "assistant"; content: string; status?: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; visionUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[]; artifacts?: Artifact[]; job?: JobState };
 type Artifact = { id: string; name: string; mime: string; size: number; downloadUrl: string; kind?: string; status?: string };
 type FileTaskInfo = { id: string; file: File };
 
@@ -416,15 +418,14 @@ export default function Home() {
     });
     if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 200) || "文件处理失败");
 
-    let statusLine = "正在处理文件…";
-    let agentText = "";
+    let job: JobState = INITIAL_JOB;
     let artifacts: Artifact[] = [];
     const paint = () => {
       setMessages((prev) => {
         const out = prev.slice();
         const last = out[out.length - 1];
         if (last && last.role === "assistant") {
-          out[out.length - 1] = { ...last, content: statusLine + (agentText ? "\n\n" + agentText : ""), artifacts: artifacts.length ? artifacts : last.artifacts };
+          out[out.length - 1] = { ...last, job, artifacts: artifacts.length ? artifacts : last.artifacts };
         }
         return out;
       });
@@ -444,13 +445,10 @@ export default function Home() {
           if (!t) continue;
           let ev: any;
           try { ev = JSON.parse(t); } catch { continue; }
-          if (ev.type === "status") statusLine = ev.status === "done" || ev.status === "failed" ? ev.message : "正在" + ev.message + "…";
-          else if (ev.type === "tool") statusLine = "正在" + (ev.label || toolLabel(ev.name)) + "…";
-          else if (ev.type === "progress" && ev.detail) agentText += ev.detail;
-          else if (ev.type === "result" && ev.summary && !agentText) agentText = ev.summary;
-          else if (ev.type === "artifact" && ev.artifact) artifacts = [...artifacts, { id: ev.artifact.id, name: ev.artifact.name, mime: ev.artifact.mime, size: ev.artifact.size, downloadUrl: `/api/artifacts/${ev.artifact.id}` }];
-          else if (ev.type === "done") statusLine = ev.exitCode === 0 ? "已完成" : "处理未完全完成，已保留当前结果";
-          else if (ev.type === "error") { statusLine = "处理失败"; agentText += "\n\n[错误] " + String(ev.message || ""); }
+          job = applyJobEvent(job, ev);
+          if (ev.type === "artifact" && ev.artifact) {
+            artifacts = [...artifacts, { id: ev.artifact.id, name: ev.artifact.name, mime: ev.artifact.mime, size: ev.artifact.size, downloadUrl: `/api/artifacts/${ev.artifact.id}`, kind: ev.artifact.kind, status: ev.artifact.status }];
+          }
           paint();
         }
       }
@@ -533,7 +531,7 @@ export default function Home() {
         const data = await r.json();
         if (!r.ok || !data.ok) throw new Error(data.error || "文件生成失败");
         if (Array.isArray(data.artifacts) && data.artifacts.length) {
-          const artifacts = data.artifacts.map((a: any) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, downloadUrl: `/api/artifacts/${a.id}` }));
+          const artifacts = data.artifacts.map((a: any) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, downloadUrl: `/api/artifacts/${a.id}`, kind: a.kind, status: a.status }));
           setMessages((prev) => {
             const out = prev.slice();
             const last = out[out.length - 1];
@@ -558,7 +556,7 @@ export default function Home() {
       setBusy(true); setError("");
       const convId = currentId && currentId !== "new" ? currentId : "c_" + uid().slice(0, 10);
       const jobId = "job_" + uid().slice(0, 10);
-      const assistant: Message = { id: uid(), role: "assistant", content: "正在处理文件…" };
+      const assistant: Message = { id: uid(), role: "assistant", content: "", job: { ...INITIAL_JOB } };
       setMessages((prev) => [...prev, assistant]);
       try {
         await runFileTask(input.trim(), convId, jobId);

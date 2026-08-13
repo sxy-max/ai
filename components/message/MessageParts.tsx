@@ -8,9 +8,13 @@ import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import "katex/dist/katex.min.css";
 import { normalizeMathDelimiters } from "../../lib/math";
+import { fmtSize } from "../../lib/job/ui";
+import type { JobState } from "../../lib/job/ui";
+import JobCard from "../job/JobCard";
+import ArtifactCard from "../artifact/ArtifactCard";
 
 // 统一的 message 渲染: user 与 assistant 共用, 仅 variant 区分视觉
-// 渲染: reasoning(折叠) + content(markdown+katex+highlight) + artifacts(卡片) + attachments(chips)
+// 渲染: reasoning(折叠) + content(markdown+katex+highlight) + job(任务状态卡) + artifacts(卡片) + attachments(chips)
 // 代码块: 语法高亮(rehype-highlight) + 一键复制
 
 export type MessageLike = {
@@ -18,16 +22,13 @@ export type MessageLike = {
   role: "user" | "assistant";
   content: string;
   reasoning?: string;
-  artifacts?: { id: string; name: string; mime: string; size: number; downloadUrl: string }[];
+  artifacts?: { id: string; name: string; mime: string; size: number; downloadUrl: string; kind?: string; status?: string }[];
   attachments?: { id: string; name: string; kind: "text" | "image"; compressed?: boolean; originalChars?: number }[];
   status?: string;
+  job?: JobState;
 };
 
-export function fmtSize(b: number) {
-  if (b < 1024) return b + " B";
-  if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
-  return (b / 1048576).toFixed(1) + " MB";
-}
+export { fmtSize };
 
 async function copyText(text: string) {
   try {
@@ -57,44 +58,6 @@ const mdComponents = {
   pre: CodeBlock,
 };
 
-function ArtifactCard({ a }: { a: { id: string; name: string; mime: string; size: number; downloadUrl: string } }) {
-  const [expired, setExpired] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const download = async () => {
-    if (downloading || expired) return;
-    setDownloading(true);
-    try {
-      const res = await fetch(a.downloadUrl);
-      if (!res.ok) { setExpired(true); return; }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = a.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-    } catch {
-      setExpired(true);
-    } finally {
-      setDownloading(false);
-    }
-  };
-  return (
-    <div className="artifact-card" data-testid="artifact-card">
-      <div className="artifact-icon">📄</div>
-      <div className="artifact-body">
-        <div className="artifact-name">{a.name}</div>
-        <div className="artifact-meta">{(a.mime.split("/")[1] || a.mime).toUpperCase()} · {fmtSize(a.size)}</div>
-      </div>
-      {expired
-        ? <span className="artifact-expired">文件已过期</span>
-        : <button className="artifact-dl" onClick={download} disabled={downloading}>{downloading ? "下载中…" : "下载"}</button>}
-    </div>
-  );
-}
-
 export default function MessageParts({ message, busy }: { message: MessageLike; busy?: boolean }) {
   const isUser = message.role === "user";
   const md = {
@@ -110,6 +73,8 @@ export default function MessageParts({ message, busy }: { message: MessageLike; 
           <div><ReactMarkdown {...md}>{normalizeMathDelimiters(message.reasoning)}</ReactMarkdown></div>
         </details>
       ) : null}
+
+      {message.job ? <JobCard job={message.job} /> : null}
 
       <div className="msg-text">
         <ReactMarkdown {...md}>
