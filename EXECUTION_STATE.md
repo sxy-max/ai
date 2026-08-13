@@ -19,23 +19,24 @@
 - 本地：lib/message/{types,lifecycle,transform}.ts、单测 40/40 过、typecheck/build 过
 
 ## 正在做
-- E2E 稳定化（Playwright chromium + Next dev 崩溃——记录为 Stabilization Backlog，不阻塞功能）
+- 云端部署已上线（2026-08-13）：git push → tar/scp → docker build → 替换容器（保留 go-ai-net/unless-stopped/2GB//data volume/env-file）
+- 线上回归全绿：公网200 / 登录 / 模型7个 / kimi 真实流式 / **glm无视觉+图片→MiniMax→回答** / personalization+skills 注入 / File Agent 上传→任务→artifact
 
 ## 待做（按依赖排序）
-1. 云端部署（git push → tar/scp 到 tencent-ai → docker build → run）
-2. 线上回归：vision-chat 预处理 / Skills / 个性化注入 / Artifact 历史 / 复制高亮 / 主题
-3. Stabilization：mobile / 真实模型多轮 / history schema / 剩余 backlog
+1. Stabilization：手机端、真实模型多轮、history schema 迁移完整性、KaTeX 复杂公式细节
+2. 剩余 backlog：E2E 追加（Settings/个性化/主题视图）、响应式细节
 
 ## Blocked
 - 无
 
 ## 已验证
 - 云端（历史）：File Agent 三测试、ZIP、vision→file、Artifact 下载、安全 8-10、重启恢复
+- **云端（本次部署回归）**：vision-chat 预处理、真实流式聊天、personalization/skills 注入、File Agent 链路
 - 本地：typecheck/build/单测 40/40、**E2E 9/9 全过**（reasoning/KaTeX/HTML artifact/复制/高亮/刷新持久）
 - E2E 基础设施根治：Next16 allowedDevOrigins（"Target crashed" 真根因）+ reuse=false + globalSetup 预热 + selectModel 按 value
 
 ## 未验证
-- 手机端、真实模型多轮、公网回归、云端 vision-chat 预处理、云端 Skills/个性化
+- 手机端、真实模型多轮、公网浏览器视觉验证（curl 已验证 API 层）
 
 ## Stabilization Backlog
 - ~~E2E "Target crashed"~~ 根因已修复：Next16 dev 跨源保护（allowedDevOrigins 未含 127.0.0.1 → 浏览器 Origin 头的 chunk/HMR 请求 403，app 不 hydrate；curl 无 Origin 故正常）。已加 allowedDevOrigins + globalSetup 预热
