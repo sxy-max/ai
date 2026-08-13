@@ -181,3 +181,37 @@ test("TEST13 移动端布局", async ({ page }) => {
   await sendPrompt(page, "你好");
   await expect(page.locator(".msg-parts.assistant .msg-text").last()).toContainText("你好", { timeout: 20_000 });
 });
+
+test("TEST14 回复风格选择 + 持久化", async ({ page }) => {
+  await page.locator("header .icon-btn").first().click();
+  await page.locator(".side-nav").filter({ hasText: "个性化" }).click();
+  await expect(page.locator(".pz-panel")).toBeVisible();
+  // 选「简洁」
+  await page.locator(".pz-style").filter({ hasText: "简洁" }).click();
+  let stored = await page.evaluate(() => JSON.parse(localStorage.getItem("go-ai-personalization-v1") || "{}"));
+  expect(stored.style.mode).toBe("concise");
+  // 选「自定义」→ 填规则 → 持久化
+  await page.locator(".pz-style").filter({ hasText: "自定义" }).click();
+  await page.locator(".pz-custom textarea").fill("先给结论，减少废话");
+  stored = await page.evaluate(() => JSON.parse(localStorage.getItem("go-ai-personalization-v1") || "{}"));
+  expect(stored.style.mode).toBe("custom");
+  expect(stored.style.customRules).toBe("先给结论，减少废话");
+});
+
+test("TEST15 用户 Skills 导入 + 列表 + 启停", async ({ page }) => {
+  await page.locator("header .icon-btn").first().click();
+  await page.locator(".side-nav").filter({ hasText: "个性化" }).click();
+  await expect(page.locator(".pz-panel")).toBeVisible();
+  const skillSection = page.locator(".pz-section").filter({ hasText: "我的 Skills" });
+  // 导入 SKILL.md（YAML frontmatter 解析 name）
+  const skillMd = "---\nname: 前端重构\n---\n# 前端重构\n\n按以下步骤重构：\n1. 分析\n2. 修改\n3. 验证";
+  await skillSection.locator("input[type=file]").setInputFiles({ name: "skill.md", mimeType: "text/markdown", buffer: Buffer.from(skillMd) });
+  await expect(skillSection.locator(".pz-skill b").first()).toHaveText("前端重构");
+  let stored = await page.evaluate(() => JSON.parse(localStorage.getItem("go-ai-personalization-v1") || "{}"));
+  expect(stored.skills[0].name).toBe("前端重构");
+  expect(stored.skills[0].enabled).toBe(true);
+  // 关闭该 skill
+  await skillSection.locator(".pz-item .pz-toggle input").first().uncheck();
+  stored = await page.evaluate(() => JSON.parse(localStorage.getItem("go-ai-personalization-v1") || "{}"));
+  expect(stored.skills[0].enabled).toBe(false);
+});
