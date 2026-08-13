@@ -3,12 +3,54 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import MessageParts from "../components/message/MessageParts";
+import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
+import { transformAllHtml } from "../lib/message/transform";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
+async function copyText(text: string) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
+  } catch {}
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); } catch {}
+  document.body.removeChild(ta);
+}
+
+function CodeBlock(props: any) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => { await copyText(ref.current?.textContent || ""); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+  return <div className="code-wrap"><button className="code-copy" onClick={onCopy}>{copied ? "已复制 ✓" : "复制"}</button><pre {...props} ref={ref} /></div>;
+}
+
+const mdComponents = { a: (props: any) => <a {...props} target="_blank" rel="noreferrer" />, pre: CodeBlock };
 
 type Provider = "opencode-go" | "anthropic";
 type Attachment = { id: string; name: string; mime: string; kind: "text" | "image"; text?: string; dataUrl?: string; originalChars?: number; contextChars?: number; compressed?: boolean };
 type WebSource = { title: string; url: string; summary?: string; content?: string };
-type Message = { id: string; role: "user" | "assistant"; content: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[] };
-type ModelInfo = { key: string; id: string; displayName: string; provider: Provider; modelToken: string; protocol: "chat" | "messages" | "responses" | "anthropic" | null; supported: boolean; reasoning: true | false | "unknown"; vision: true | false | "unknown"; files: string; web: string; providerMeta?: any; featuredRank?: number | null; useCase?: string | null };
+type Message = { id: string; role: "user" | "assistant"; content: string; status?: string; reasoning?: string; model?: string; provider?: Provider; attachments?: Attachment[]; webUsed?: boolean; urlUsed?: boolean; webSources?: WebSource[]; urlSources?: WebSource[]; artifacts?: Artifact[] };
+type Artifact = { id: string; name: string; mime: string; size: number; downloadUrl: string };
+type FileTaskInfo = { id: string; file: File };
+
+const FILE_TASK_HINTS = ["修改这个", "编辑", "改一下", "改成", "改背景", "生成一个", "创建", "给我文件", "发文件", "生成 index", "帮我修", "处理这个", "根据截图", "按照截图", "修一下", "这个项目", "处理代码", "改一下这个", "改成浅色", "改成深色", "改颜色"];
+function isFileTaskPrompt(p: string, hasFiles: boolean) {
+  const t = String(p || "").toLowerCase();
+  if (!t.trim()) return false;
+  if (FILE_TASK_HINTS.some((h) => t.includes(h))) return true;
+  if (hasFiles && /(修改|编辑|改|处理|修复|根据|按照)/.test(t)) return true;
+  return false;
+}
+function toolLabel(n: string) {
+  const m: Record<string, string> = { Read: "读取文件", Write: "写入文件", Edit: "修改文件", Glob: "查找文件", Grep: "搜索内容", Bash: "执行命令" };
+  return m[n] || "处理文件";
+}
+function fmtSize(b: number) { if (b < 1024) return b + " B"; if (b < 1048576) return (b / 1024).toFixed(1) + " KB"; return (b / 1048576).toFixed(1) + " MB"; }
+type ModelInfo = { key: string; id: string; displayName: string; provider: Provider; modelToken: string; protocol: "chat" | "messages" | "responses" | "anthropic" | null; supported: boolean; reasoning: true | false | "unknown"; vision: true | false | "unknown"; files: string; web: string; providerMeta?: any; featuredRank?: number | null; useCase?: string | null; temperaturePolicy?: { mode: "fixed" | "range" | "unsupported"; value?: number; min?: number; max?: number }; reasoningPolicy?: "instruct" | "none" };
 type Conversation = { id: string; title: string; model: string; provider?: Provider; messages: Message[]; updatedAt: number };
 type StreamEvent = { type: "meta" | "text" | "reasoning" | "error" | "done"; value?: string; protocol?: string; provider?: Provider; stopReason?: string };
 type SearchMode = "off" | "auto" | "on";
@@ -24,8 +66,17 @@ const MAX_TEXT_FILE_BYTES = 5_000_000;
 const MAX_CLIENT_REQUEST_BYTES = 3_300_000;
 const MAX_TEXT_ATTACHMENT_CHARS = 160_000;
 const MAX_IMAGE_ATTACHMENT_BYTES = 1_250_000;
-const uid = () => crypto.randomUUID();
-
+function uid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const h = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return h.slice(0,8) + "-" + h.slice(8,12) + "-" + h.slice(12,16) + "-" + h.slice(16,20) + "-" + h.slice(20);
+}
 function prettyModel(id: string) {
   return id.replace(/^anthropic\//, "").split("-").map((x) => /^v?\d/.test(x) ? x.toUpperCase() : x.charAt(0).toUpperCase() + x.slice(1))
     .join(" ").replace("Gpt", "GPT").replace("Glm", "GLM").replace("Mimo", "MiMo");
@@ -140,7 +191,8 @@ function sourceLabel(s: WebSource, i: number) {
 
 export default function Home() {
   const [password, setPassword] = useState("");
-  const [authed, setAuthed] = useState(false);
+  const E2E = process.env.NEXT_PUBLIC_E2E_MODE === "1" && process.env.NODE_ENV !== "production";
+  const [authed, setAuthed] = useState(E2E);
   const [loginError, setLoginError] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [providerWarnings, setProviderWarnings] = useState<string[]>([]);
@@ -165,11 +217,14 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [currentId, setCurrentId] = useState<string>(uid());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  async function copyMessage(m: Message) { await copyText(m.content || ""); setCopiedId(m.id); setTimeout(() => setCopiedId(null), 1500); }
   const abortRef = useRef<AbortController | null>(null);
   const authRunRef = useRef(0);
   const runRef = useRef(0);
   const fileRunRef = useRef(0);
   const fileBusyRef = useRef(false);
+  const filesRef = useRef<FileTaskInfo[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -186,7 +241,7 @@ export default function Home() {
           model: typeof conversation.model === "string" ? conversation.model : "",
           ...(conversation.provider === "opencode-go" || conversation.provider === "anthropic" ? { provider: conversation.provider } : {}),
           messages: storageSafeMessages(Array.isArray(conversation.messages)
-            ? conversation.messages.filter((message: any) => message && (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+            ? conversation.messages.filter((message: any) => message && (message.role === "user" || message.role === "assistant") && typeof message.content === "string" && (message.role !== "assistant" || message.content.trim() || (Array.isArray(message.artifacts) && message.artifacts.length)))
             : []),
           updatedAt: typeof conversation.updatedAt === "number" ? conversation.updatedAt : Date.now()
         }));
@@ -303,12 +358,90 @@ export default function Home() {
     setSearchBusy(false);
   }
 
+  async function processAutoArtifact(messages: Message[], prompt: string): Promise<Message[]> {
+    const explicit = /(给我.*文件|发.*文件|生成.*(html|index)|html 文件|文件给我|给我下载)/i.test(prompt);
+    const out = messages.slice();
+    const last = out[out.length - 1];
+    if (!last || last.role !== "assistant") return out;
+    const res = transformAllHtml(last.content, explicit);
+    if (!res.artifacts.length) return out;
+    let artifacts = last.artifacts || [];
+    const created: Artifact[] = [];
+    for (const a of res.artifacts) {
+      try {
+        const r = await fetch("/api/artifacts/create", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: a.name, mime: a.mime, content: a.content }),
+        });
+        if (r.ok) created.push(await r.json());
+      } catch {}
+    }
+    artifacts = [...created, ...artifacts];
+    return [...out.slice(0, -1), { ...last, content: res.content, artifacts }];
+  }
+
+  async function runFileTask(prompt: string, convId: string, jobId: string) {
+    const retained = filesRef.current;
+    const fd = new FormData();
+    for (const r of retained) fd.append("files", r.file, r.file.name);
+    const up = await fetch(`/api/files/upload?conversationId=${convId}&jobId=${jobId}`, { method: "POST", body: fd });
+    if (!up.ok) throw new Error((await up.text()).slice(0, 200) || "上传失败");
+
+    const res = await fetch("/api/agent/task", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: convId, jobId, prompt }),
+    });
+    if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 200) || "文件处理失败");
+
+    let statusLine = "正在处理文件…";
+    let agentText = "";
+    let artifacts: Artifact[] = [];
+    const paint = () => {
+      setMessages((prev) => {
+        const out = prev.slice();
+        const last = out[out.length - 1];
+        if (last && last.role === "assistant") {
+          out[out.length - 1] = { ...last, content: statusLine + (agentText ? "\n\n" + agentText : ""), artifacts: artifacts.length ? artifacts : last.artifacts };
+        }
+        return out;
+      });
+    };
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t) continue;
+          let ev: any;
+          try { ev = JSON.parse(t); } catch { continue; }
+          if (ev.type === "agent_tool") statusLine = "正在" + toolLabel(ev.name) + "…";
+          else if (ev.type === "agent_text" && ev.text) agentText += ev.text;
+          else if (ev.type === "agent_result" && ev.result && !agentText) agentText = ev.result;
+          else if (ev.type === "artifacts" && Array.isArray(ev.files)) artifacts = ev.files.map((f: any) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size, downloadUrl: `/api/artifacts/${f.id}` }));
+          else if (ev.type === "done") statusLine = ev.exitCode === 0 ? "已完成" : "处理未完全完成，已保留当前结果";
+          else if (ev.type === "agent_error") { statusLine = "处理失败"; agentText += "\n\n[错误] " + String(ev.message || ""); }
+          paint();
+        }
+      }
+    } catch (e) { throw new Error("文件处理中断"); }
+    paint();
+  }
+
   function newChat() { stopActiveRun(); setCurrentId(uid()); setMessages([]); setInput(""); setAttachments([]); setModel(""); setError(""); setShowOtherModels(false); setSidebar(false); }
   function openChat(c: Conversation) { stopActiveRun(); setCurrentId(c.id); setMessages(c.messages); setModel(c.model || ""); if (c.model && !models.find((m) => m.key === c.model && typeof m.featuredRank === "number")) setShowOtherModels(true); setAttachments([]); setError(""); setSidebar(false); }
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
     if (fileBusyRef.current) { setError("已有文件正在读取，请等待完成后再添加。"); return; }
+    if (Array.from(files).some((f) => f.type.startsWith("image/")) && selectedModel && selectedModel.vision === false) { setError("当前模型不支持图片，请切换模型或移除图片。"); return; }
     if (attachments.length + files.length > MAX_FILES) { setError(`一次最多添加 ${MAX_FILES} 个文件。`); return; }
     const fileRunId = fileRunRef.current + 1;
     fileRunRef.current = fileRunId;
@@ -316,7 +449,9 @@ export default function Home() {
     setFileBusy(true); setError("");
     try {
       const parsed: Attachment[] = [];
-      for (const file of Array.from(files)) parsed.push(await fileToAttachment(file));
+      const retained: FileTaskInfo[] = [];
+      for (const file of Array.from(files)) { const a = await fileToAttachment(file); parsed.push(a); retained.push({ id: a.id, file }); }
+      filesRef.current = [...filesRef.current, ...retained];
       if (fileRunRef.current === fileRunId) setAttachments((old) => [...old, ...parsed].slice(0, MAX_FILES));
     } catch (e: any) {
       if (fileRunRef.current === fileRunId) setError(`文件读取失败：${e?.message || e}`);
@@ -357,6 +492,22 @@ export default function Home() {
     if (!selectedModel) { setError("模型列表已经变化，请刷新页面后重选。"); return; }
     if (!selectedModel.supported) { setError("这个模型已出现，但当前协议路由尚未识别。"); return; }
 
+    if (isFileTaskPrompt(input.trim(), attachments.length > 0)) {
+      setBusy(true); setError("");
+      const convId = currentId && currentId !== "new" ? currentId : "c_" + uid().slice(0, 10);
+      const jobId = "job_" + uid().slice(0, 10);
+      const assistant: Message = { id: uid(), role: "assistant", content: "正在处理文件…" };
+      setMessages((prev) => [...prev, assistant]);
+      try {
+        await runFileTask(input.trim(), convId, jobId);
+      } catch (e: any) {
+        setError("文件处理失败：" + (e?.message || e));
+      }
+      setBusy(false);
+      filesRef.current = [];
+      return;
+    }
+
     setError(""); setBusy(true);
     const runId = runRef.current + 1;
     runRef.current = runId;
@@ -370,6 +521,7 @@ export default function Home() {
     const controller = new AbortController(); abortRef.current = controller;
     let streamedText = "";
     let streamedReasoning = "";
+    const _acc = createAccumulator();
 
     try {
       const external = prompt ? await getExternalContext(prompt, controller.signal, runId) : { webContext: "", urlContext: "", webSources: [], urlSources: [], webUsed: false, urlUsed: false };
@@ -383,7 +535,7 @@ export default function Home() {
         maxOutputTokens: maxOutputTokens.trim() ? Number(maxOutputTokens) : null,
         reasoningEffort
       };
-      const requestMessages = outgoing.slice(-40);
+      const requestMessages = sanitizeForUpstream(outgoing.slice(-40));
       if (requestMessages[0]?.role === "assistant") requestMessages.shift();
       const apiMessages = requestMessages.map(({ role, content, attachments: messageAttachments }) => ({
         role,
@@ -409,13 +561,25 @@ export default function Home() {
         body: requestBody,
         signal: controller.signal
       });
-      if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      if (!res.ok || !res.body) {
+        const errText = (await res.text()) || `HTTP ${res.status}`;
+        let quotaMsg = "";
+        try {
+          const j = JSON.parse(errText);
+          if (j && j.code === "MODEL_QUOTA_EXCEEDED") {
+            const mins = Math.ceil(j.retryAfterSeconds / 60);
+            quotaMsg = `${j.model} 的 ${j.window === "5h" ? "5 小时" : "7 天"}额度已用完（${j.used}/${j.limit}），约 ${mins} 分钟后恢复` + (j.window === "5h" ? `，本周 ${j.used7d}/${j.limit7d}` : "");
+          }
+        } catch {}
+        throw new Error(quotaMsg || errText);
+      }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = "", streamError = "", stopReason = "", sawDone = false, lastPaint = 0;
       const consumeLine = (line: string) => {
         if (!line.trim()) return;
         let ev: StreamEvent; try { ev = JSON.parse(line); } catch { return; }
         if (ev.type === "text") streamedText += ev.value || "";
         if (ev.type === "reasoning") streamedReasoning += ev.value || "";
+        accumulate(_acc, ev as any);
         if (ev.type === "error") streamError = ev.value || "上游流式响应失败";
         if (ev.type === "done") { sawDone = true; if (ev.stopReason) stopReason = ev.stopReason; }
         const now = performance.now();
@@ -438,9 +602,15 @@ export default function Home() {
         throw new Error("流式响应提前结束：未收到服务端完成标记");
       }
       if (runRef.current !== runId) return;
-      const completed = [...outgoing, { ...assistant, content: streamedText, reasoning: streamedReasoning }];
+      const _finalText = String(streamedText || "").trim();
+      const _finalReason = String(streamedReasoning || "").trim();
+      const _hasArtifact = !!(assistant.artifacts && assistant.artifacts.length);
+      const _status = finalizeStatus({ text: streamedText, reasoning: streamedReasoning, parts: [] }, _hasArtifact);
+      const _content = !_finalText ? (_finalReason ? "（模型完成了推理，但没有返回最终回答，可以重试。）" : "") : streamedText;
+      const completed = [...outgoing, { ...assistant, content: _content, reasoning: streamedReasoning, status: _status }];
       setMessages(completed);
       persist(completed, activeModel.key, activeModel.provider);
+      processAutoArtifact(completed, prompt).then((updated) => { if (runRef.current === runId) { setMessages(updated); persist(updated, activeModel.key, activeModel.provider); } });
       if (/max_tokens|incomplete|model_context_window_exceeded/i.test(stopReason)) setError("回答因输出或上下文上限提前结束。");
     } catch (e: any) {
       if (runRef.current === runId) {
@@ -467,8 +637,8 @@ export default function Home() {
       <div className="model-controls">
         <div className="model-search">{allowOtherModels && <button className={showOtherModels ? "other-toggle active" : "other-toggle"} onClick={() => setShowOtherModels((x) => !x)}>{showOtherModels ? "收起其他模型" : "显示其他模型"}</button>}{allowOtherModels && showOtherModels && <input value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} placeholder="搜索其他模型" />}</div>
         {providerWarnings.length > 0 && <div className="provider-warning">{providerWarnings.join(" ")}</div>}
-        {selectedModel && <div className="cap-bar"><span>{selectedModel.useCase || "高级模型"}</span><span>{selectedModel.provider === "anthropic" ? "Anthropic" : "OpenCode Go"}</span><span>{selectedModel.protocol}</span><span>上下文：{contextMode}</span><span>联网：{searchMode}</span><span>图片：{selectedModel.vision === true ? "已确认" : "尝试原生"}</span><span>Reasoning：{reasoningEffort}</span></div>}
-        {settingsOpen && <div className="settings-panel"><label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label><label>Reasoning<select value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label><label>温度{selectedModel?.provider === "anthropic" && <small>由 Claude 自动管理</small>}<input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} /></label><label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label></div>}
+        
+        {settingsOpen && <div className="settings-panel"><label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label><label>Reasoning<select value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label><label>温度{selectedModel?.temperaturePolicy?.mode === "fixed" ? <small>固定 {selectedModel.temperaturePolicy.value}</small> : selectedModel?.provider === "anthropic" ? <small>由 Claude 自动管理</small> : null}{selectedModel?.temperaturePolicy?.mode !== "fixed" && <input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} />}</label><label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label></div>}
       </div>
 
       <div className="messages">
@@ -477,14 +647,16 @@ export default function Home() {
           {(m.attachments?.length || m.webUsed || m.urlUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.attachments?.map((a) => <span key={a.id}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.compressed ? " · 已压缩" : ""}</span>)}</div> : null}
           {m.urlSources?.length ? <div className="source-grid">{m.urlSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
           {m.webSources?.length ? <div className="source-grid">{m.webSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
-          {m.role === "assistant" && m.reasoning ? <details className="reasoning"><summary>思考过程 <span>{busy && m.id === messages[messages.length - 1]?.id ? "进行中" : "已完成"}</span></summary><div><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.reasoning}</ReactMarkdown></div></details> : null}
-          <div className="bubble">{m.role === "assistant" ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || (busy ? "▍" : "")}</ReactMarkdown> : <div className="plain">{m.content}</div>}</div></article>)}
+          <MessageParts message={m} busy={busy} />
+          {m.role === "assistant" && <button className="msg-copy" onClick={() => copyMessage(m)}>{copiedId === m.id ? "已复制 ✓" : "复制"}</button>}
+        </article>)}
         <div ref={bottomRef} />
       </div>
 
+      {E2E && <div data-testid="mock-mode-indicator" style={{position:"fixed",top:4,right:8,fontSize:10,color:"#7c8495",zIndex:50}}>E2E-MOCK</div>}
       <footer>{attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}{error && <div className="error inline">{error}</div>}
         <div className="tool-row"><button className={searchMode !== "off" ? "tool active" : "tool"} onClick={cycleSearchMode}>◎ {searchBusy ? "检索中" : searchLabel}</button><button className={settingsOpen ? "tool active" : "tool"} onClick={() => setSettingsOpen((x) => !x)}>⚙ 参数</button><span>{selectedModel ? `${prettyModel(selectedModel.id)} · ${selectedModel.protocol}` : "未选择模型"}</span></div>
-        <div className="composer"><label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "问点什么，或粘贴 URL…"} rows={1} />{busy ? <button className="send stop" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send" onClick={send}>↑</button>}</div>
+        <div className="composer"><label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} onPaste={(e) => { const items = e.clipboardData?.items; if (!items) return; const files = []; for (let i = 0; i < items.length; i++) { const it = items[i]; if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) files.push(f); } } if (!files.length) return; e.preventDefault(); const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); handleFiles(dt.files); }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "问点什么，或粘贴 URL…"} rows={1} data-testid="chat-input" />{busy ? <button className="send stop" data-testid="send-button" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send" data-testid="send-button" onClick={send}>↑</button>}</div>
         <div className="footnote">历史正文保存在本机 · 附件内容不落盘，刷新后需重新添加 · API Key 只在服务端 · URL/联网使用 Exa MCP</div>
       </footer>
     </section>

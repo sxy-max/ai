@@ -106,6 +106,8 @@ function cookieValue(request: Request, name: string) {
 
 export function isAuthorized(request: Request) {
   if (accessConfigurationError()) return false;
+  // 本地 E2E 测试模式: 仅非 production 生效
+  if (process.env.E2E_MODE === "1" && process.env.NODE_ENV !== "production") return true;
   const configured = configuredPassword();
   if (!configured && process.env.NODE_ENV !== "production") return true;
   const headerPassword = request.headers.get("x-access-password");

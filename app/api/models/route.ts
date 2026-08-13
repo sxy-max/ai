@@ -3,6 +3,7 @@ import { anthropicCapabilities, anthropicSelectionId, featuredAnthropicModelIds,
 import { accessConfigurationError, isAuthorized, signModelAccess } from "../../../lib/auth";
 import { timeoutSignal } from "../../../lib/http";
 import { allowOtherModels, API_ROOT, capabilitiesForModel, featuredModelIds, featuredModelMeta, hasConfiguredFeaturedModels } from "../../../lib/opencode";
+import { modelPolicy } from "../../../lib/modelPolicy";
 import { checkRateLimit } from "../../../lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -57,6 +58,8 @@ export async function GET(request: Request) {
   }
 
   const claudeFeatured = featuredAnthropicModelIds(anthropicModels);
+  const E2E = process.env.E2E_MODE === "1" && process.env.NODE_ENV !== "production";
+  const MOCK_MODELS = ["mock-lifecycle", "mock-reasoning-final", "mock-reasoning-only", "mock-html-150", "mock-katex"];
   const featuredIds = featuredModelIds(claudeFeatured);
   const featured = new Set(featuredIds);
   const allowOther = allowOtherModels();
@@ -74,6 +77,8 @@ export async function GET(request: Request) {
         ownedBy: raw.owned_by ?? null
       },
       modelToken: signModelAccess("opencode-go", raw.id),
+      temperaturePolicy: modelPolicy(raw.id).temperature,
+      reasoningPolicy: modelPolicy(raw.id).reasoning,
       ...featuredModelMeta(raw.id, featuredIds)
     };
   });
@@ -99,11 +104,14 @@ export async function GET(request: Request) {
         capabilities: capabilities.raw
       },
       modelToken: signModelAccess("anthropic", raw.id),
+      temperaturePolicy: modelPolicy(raw.id).temperature,
+      reasoningPolicy: modelPolicy(raw.id).reasoning,
       ...featuredModelMeta(key, featuredIds)
     };
   });
 
-  const allModels = [...normalizedGo, ...normalizedAnthropic];
+  const mockList = E2E ? MOCK_MODELS.map((id) => ({ key: id, id, displayName: id, provider: "opencode-go", protocol: null, supported: true, reasoning: false, vision: false, files: "", web: "", modelToken: signModelAccess("opencode-go", id), featuredRank: 99, useCase: "E2E Mock" })) : [];
+  const allModels = [...mockList, ...normalizedGo, ...normalizedAnthropic];
   const models = (allowOther ? allModels : allModels.filter((model) => featured.has(model.key)))
     .sort((a, b) => {
       if (a.featuredRank !== null && b.featuredRank !== null) return a.featuredRank - b.featuredRank;

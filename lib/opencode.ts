@@ -20,7 +20,10 @@ export const DEFAULT_FEATURED_MODEL_IDS = [
   "gpt-5.6-luna",
   "grok-4.5",
   "kimi-k3",
-  "glm-5.2"
+  "qwen3.8-max",
+  "glm-5.2",
+  "minimax-m3",
+  "deepseek-v4-pro"
 ];
 
 const FEATURED_MODEL_USE_CASES: Record<string, string> = {
@@ -80,6 +83,8 @@ export function protocolForModel(model: string, provider?: Provider): Protocol |
   return null;
 }
 
+const KNOWN_VISION: Record<string, boolean> = { "kimi-k3": true, "glm-5.2": false };
+
 export function capabilitiesForModel(model: string, raw: Record<string, unknown> = {}): ModelCapabilities {
   const protocol = protocolForModel(model, "opencode-go");
   const rawCapabilities = raw.capabilities && typeof raw.capabilities === "object" ? raw.capabilities as Record<string, unknown> : {};
@@ -92,7 +97,7 @@ export function capabilitiesForModel(model: string, raw: Record<string, unknown>
     protocol,
     supported: Boolean(protocol),
     reasoning: typeof explicitReasoning === "boolean" ? explicitReasoning : "unknown",
-    vision: hasImageMetadata ? true : "unknown",
+    vision: KNOWN_VISION[model] ?? (hasImageMetadata ? true : "unknown"),
     files: "native-or-extract",
     web: "client-auto-search"
   };

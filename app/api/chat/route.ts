@@ -3,6 +3,9 @@ import { accessConfigurationError, isAuthorized, verifyModelAccess } from "../..
 import { HttpError, isRecord, readJsonBody } from "../../../lib/http";
 import { endpointForProtocol, type Provider, protocolForModel, type Protocol } from "../../../lib/opencode";
 import { checkRateLimit } from "../../../lib/rate-limit";
+import { detectSkill, skillInstruction } from "../../../lib/skills";
+import { effectiveTemperature } from "../../../lib/modelPolicy";
+import { quotaCheck, quotaRecordSuccess } from "../../../lib/quota";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -169,7 +172,7 @@ function addReasoningInstruction(messages: unknown[], effort: string) {
   return instruction ? [{ role: "system", content: instruction }, ...messages] : messages;
 }
 
-function chatPayload(model: string, messages: ClientMessage[], options?: ChatOptions) {
+function chatPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
   const opts = normalizedOptions(options);
   let mapped: unknown[] = messages.map((message) => {
     const images = (message.attachments || []).filter((attachment) => attachment.kind === "image" && attachment.dataUrl);
@@ -183,10 +186,10 @@ function chatPayload(model: string, messages: ClientMessage[], options?: ChatOpt
     };
     return { role: message.role, content: text };
   });
-  mapped.unshift({ role: "system", content: [process.env.SYSTEM_PROMPT || "", EXTERNAL_DATA_INSTRUCTION].filter(Boolean).join("\n\n") });
+  mapped.unshift({ role: "system", content: [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION].filter(Boolean).join("\n\n") });
   mapped = addReasoningInstruction(mapped, opts.reasoningEffort);
   const payload: Record<string, unknown> = { model, stream: true, messages: mapped, max_tokens: opts.maxOutputTokens };
-  if (opts.temperature !== undefined) payload.temperature = opts.temperature;
+  const temp = effectiveTemperature(model, options?.temperature); if (temp !== undefined) payload.temperature = temp;
   if (!["off", "auto"].includes(opts.reasoningEffort)) payload.reasoning_effort = opts.reasoningEffort;
   return payload;
 }
@@ -205,9 +208,9 @@ function messageBlocks(message: ClientMessage) {
   return content;
 }
 
-function messagesPayload(model: string, messages: ClientMessage[], options?: ChatOptions) {
+function messagesPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
   const opts = normalizedOptions(options);
-  const system = [process.env.SYSTEM_PROMPT || "", EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
+  const system = [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
   const payload: Record<string, unknown> = {
     model,
     stream: true,
@@ -223,10 +226,10 @@ function supportsModernAnthropicThinking(model: string) {
   return /^claude-(?:sonnet|opus)-(?:5(?:$|-)|4-[6-9](?:$|-))/i.test(model);
 }
 
-function anthropicPayload(model: string, messages: ClientMessage[], options?: ChatOptions) {
+function anthropicPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
   const opts = normalizedOptions(options);
   const modernThinking = supportsModernAnthropicThinking(model);
-  const system = [process.env.SYSTEM_PROMPT || "", EXTERNAL_DATA_INSTRUCTION];
+  const system = [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION];
   if (!modernThinking) system.push(reasoningInstruction(opts.reasoningEffort));
   const payload: Record<string, unknown> = {
     model,
@@ -247,7 +250,7 @@ function anthropicPayload(model: string, messages: ClientMessage[], options?: Ch
   return payload;
 }
 
-function responsesPayload(model: string, messages: ClientMessage[], options?: ChatOptions) {
+function responsesPayload(model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
   const opts = normalizedOptions(options);
   const input = messages.map((message) => {
     const content: Array<Record<string, unknown>> = [];
@@ -261,18 +264,18 @@ function responsesPayload(model: string, messages: ClientMessage[], options?: Ch
     return { role: message.role, content };
   });
   const payload: Record<string, unknown> = { model, stream: true, input, max_output_tokens: opts.maxOutputTokens };
-  const instructions = [process.env.SYSTEM_PROMPT || "", EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
+  const instructions = [process.env.SYSTEM_PROMPT || "", skillText, EXTERNAL_DATA_INSTRUCTION, reasoningInstruction(opts.reasoningEffort)].filter(Boolean);
   if (instructions.length) payload.instructions = instructions.join("\n\n");
   if (opts.temperature !== undefined) payload.temperature = opts.temperature;
   if (!["off", "auto"].includes(opts.reasoningEffort)) payload.reasoning = { effort: opts.reasoningEffort, summary: "auto" };
   return payload;
 }
 
-function buildPayload(protocol: Protocol, model: string, messages: ClientMessage[], options?: ChatOptions) {
-  if (protocol === "chat") return chatPayload(model, messages, options);
-  if (protocol === "messages") return messagesPayload(model, messages, options);
-  if (protocol === "anthropic") return anthropicPayload(model, messages, options);
-  return responsesPayload(model, messages, options);
+function buildPayload(protocol: Protocol, model: string, messages: ClientMessage[], options?: ChatOptions, skillText = "") {
+  if (protocol === "chat") return chatPayload(model, messages, options, skillText);
+  if (protocol === "messages") return messagesPayload(model, messages, options, skillText);
+  if (protocol === "anthropic") return anthropicPayload(model, messages, options, skillText);
+  return responsesPayload(model, messages, options, skillText);
 }
 
 function deltas(protocol: Protocol, data: Record<string, any>): { text?: string; reasoning?: string; stopReason?: string; error?: string; terminal?: boolean } {
@@ -356,6 +359,30 @@ function errorResponse(message: string, status: number, headers?: HeadersInit) {
   return new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8", ...headers } });
 }
 
+function mockStream(model: string): Response {
+  const enc = (o: object) => new TextEncoder().encode(JSON.stringify(o) + "\n");
+  const evs: Uint8Array[] = [enc({ type: "meta", protocol: "chat", provider: "opencode-go" })];
+  if (model === "mock-reasoning-final" || model === "mock-reasoning-only") {
+    evs.push(enc({ type: "reasoning", value: "推理内容：先分析条件，再求临界。" }));
+  }
+  if (model === "mock-reasoning-final") evs.push(enc({ type: "text", value: "最终回答：临界角速度满足平衡条件。" }));
+  if (model === "mock-lifecycle" || model === "mock-text") evs.push(enc({ type: "text", value: "最终回答：你好" }));
+  if (model === "mock-katex") {
+    evs.push(enc({ type: "text", value: "由受力分析可得块公式：\n\n$$\n\\Omega=\\sqrt{\\omega^2-\\frac{g^2}{R^2\\omega^2}}\n$$\n" }));
+  }
+  if (model === "mock-html-150") {
+    const lines = Array.from({ length: 150 }, (_, i) => `  <div class="row">line${i}</div>`);
+    const html = "<!DOCTYPE html>\n<html>\n<body>\n" + lines.join("\n") + "\n</body>\n</html>";
+    evs.push(enc({ type: "text", value: "```html\n" + html + "\n```" }));
+  }
+  evs.push(enc({ type: "done", stopReason: "end_turn" }));
+  const _total = evs.reduce((n, u) => n + u.length, 0);
+  const _merged = new Uint8Array(_total);
+  let _off = 0;
+  for (const u of evs) { _merged.set(u, _off); _off += u.length; }
+  return new Response(_merged, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-cache" } });
+}
+
 export async function POST(request: Request) {
   const configurationError = accessConfigurationError();
   if (configurationError) return errorResponse(configurationError, 503);
@@ -372,10 +399,26 @@ export async function POST(request: Request) {
   }
 
   if (!verifyModelAccess(body.modelToken, body.provider, body.model)) return errorResponse("Model access token is invalid or expired; reload the model list", 403);
+  if (body.model.startsWith("mock-")) return mockStream(body.model);
   const protocol = protocolForModel(body.model, body.provider);
   if (!protocol) return errorResponse(`Unknown protocol route for model: ${body.model}`, 400);
+  const skillText = skillInstruction(detectSkill(body.messages));
   const key = body.provider === "anthropic" ? process.env.ANTHROPIC_API_KEY : process.env.OPENCODE_GO_API_KEY;
   if (!key) return errorResponse(body.provider === "anthropic" ? "Anthropic is not configured" : "OpenCode Go is not configured", 503);
+
+  const quota = await quotaCheck(body.model);
+  if (!quota.ok) {
+    return new Response(JSON.stringify({
+      code: "MODEL_QUOTA_EXCEEDED",
+      model: body.model,
+      window: quota.window,
+      used: quota.used,
+      limit: quota.limit,
+      retryAfterSeconds: quota.retryAfterSeconds,
+      used7d: quota.used7d,
+      limit7d: quota.limit7d
+    }), { status: 429, headers: { "content-type": "application/json" } });
+  }
 
   const routedMessages = appendContext(body.messages, body.webContext, body.urlContext);
   const headers: Record<string, string> = body.provider === "anthropic"
@@ -405,7 +448,7 @@ export async function POST(request: Request) {
     upstream = await fetch(endpointForProtocol(protocol), {
       method: "POST",
       headers,
-      body: JSON.stringify(buildPayload(protocol, body.model, routedMessages, body.options)),
+      body: JSON.stringify(buildPayload(protocol, body.model, routedMessages, body.options, skillText)),
       signal: upstreamAbort.signal,
       cache: "no-store"
     });
@@ -420,6 +463,8 @@ export async function POST(request: Request) {
     disposeUpstream();
     return errorResponse(publicUpstreamError(upstream.status || 502, detail), upstream.status || 502);
   }
+
+  await quotaRecordSuccess(body.model).catch(() => {});
 
   const contentType = upstream.headers.get("content-type") || "";
   if (!contentType.includes("text/event-stream")) {

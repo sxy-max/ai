@@ -12,21 +12,32 @@
     "typecheck": "next typegen && tsc --noEmit --incremental false",
     "test": "npm run test:core && npm run test:integration",
     "test:core": "tsx --test tests/**/*.test.ts",
-    "test:integration": "npm run build && node tests/integration.mjs"
+    "test:integration": "npm run build && node tests/integration.mjs",
+    "test:message": "tsx --test tests/message-lifecycle.test.ts tests/transform.test.ts",
+    "test:unit": "tsx --test tests/message-lifecycle.test.ts tests/transform.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "katex": "^0.18.4",
     "next": "16.3.0",
     "pdfjs-dist": "5.4.54",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
-    "remark-gfm": "4.0.1"
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "24.2.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "tsx": "4.20.5",
     "typescript": "5.9.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
   }
 }
