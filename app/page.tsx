@@ -330,6 +330,8 @@ export default function Home() {
 
   function storageSafeMessages(nextMessages: Message[]) {
     return nextMessages.map((message) => {
+      // 旧消息可能缺 id → 补一个，避免 React key 警告与列表错乱
+      const safeId = typeof message.id === "string" && message.id ? message.id : uid();
       const attachments = (Array.isArray(message.attachments) ? message.attachments : [])
         .filter((attachment: any) => attachment && typeof attachment === "object" && (attachment.kind === "text" || attachment.kind === "image"))
         .map((attachment: any) => ({
@@ -349,6 +351,7 @@ export default function Home() {
         : message.content;
       return {
         ...message,
+        id: safeId,
         content,
         attachments: attachments.length ? attachments : undefined,
         webSources: Array.isArray(message.webSources) ? message.webSources.map(({ title, url, summary }) => ({ title, url, summary })) : undefined,

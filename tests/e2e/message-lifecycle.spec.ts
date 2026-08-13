@@ -106,3 +106,78 @@ test("TEST9 message 一键复制", async ({ page }) => {
   await copyBtn.click();
   await expect(copyBtn).toContainText("已复制 ✓");
 });
+
+test("TEST10 设置视图 + 主题切换", async ({ page }) => {
+  await page.locator("header .icon-btn").first().click();
+  await page.locator(".side-nav").filter({ hasText: "设置" }).click();
+  await expect(page.locator(".settings-view")).toBeVisible();
+  await expect(page.locator(".settings-grid label")).toHaveCount(6);
+  const themeSel = page.locator(".settings-grid label").filter({ hasText: "主题" }).locator("select");
+  await themeSel.selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await themeSel.selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await themeSel.selectOption("system");
+  // 返回聊天
+  await page.locator("header .icon-btn").last().click();
+  await expect(page.locator('[data-testid="chat-input"]')).toBeVisible();
+});
+
+test("TEST11 个性化记忆添加 + 持久化", async ({ page }) => {
+  await page.locator("header .icon-btn").first().click();
+  await page.locator(".side-nav").filter({ hasText: "个性化" }).click();
+  await expect(page.locator(".pz-panel")).toBeVisible();
+  const memorySection = page.locator(".pz-section").first();
+  await memorySection.locator("textarea").fill("我是 E2E 测试用户，用中文交流");
+  await memorySection.locator(".pz-btn").click();
+  await expect(page.locator(".pz-list .pz-text").first()).toContainText("E2E 测试用户");
+  const stored = await page.evaluate(() => localStorage.getItem("go-ai-personalization-v1") || "");
+  expect(stored).toContain("E2E 测试用户");
+});
+
+test("TEST12 旧格式对话迁移不崩溃", async ({ page }) => {
+  // 在页面脚本执行前注入旧格式数据，避免 app 用空数据覆盖
+  await page.addInitScript(() => {
+    localStorage.setItem("go-ai-conversations-v3", JSON.stringify([
+      {
+        id: "old-1",
+        title: "旧对话",
+        model: "kimi-k3",
+        messages: [
+          { role: "user", content: "你好" },
+          { role: "assistant", content: "旧的回答", reasoning: "旧推理", attachments: [{ id: "a1", kind: "image", name: "x.png", mime: "image/png" }] },
+          { role: "assistant", content: "", reasoning: "只有推理没有正文" },
+          { role: "user", content: "第二轮" }
+        ]
+      },
+      { id: "old-2" },
+      "garbage",
+      null
+    ]));
+  });
+  await page.goto("/");
+  // 应用不崩溃，且最近对话被自动恢复
+  await expect(page.locator('[data-testid="chat-input"]')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".msg-parts.user .msg-text").last()).toContainText("第二轮");
+  // 旧 reasoning-only assistant 被过滤（不污染历史/上游）
+  await expect(page.locator(".msg-parts.assistant")).toHaveCount(1);
+  await expect(page.locator(".msg-parts.assistant .msg-text").first()).toContainText("旧的回答");
+});
+
+test("TEST13 移动端布局", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.locator('[data-testid="chat-input"]')).toBeVisible({ timeout: 20_000 });
+  // 移动端侧栏默认收起（fixed 移出视口）
+  await expect(page.locator(".sidebar")).not.toBeInViewport();
+  // 打开侧栏 → 进设置
+  await page.locator("header .icon-btn").first().click();
+  await expect(page.locator(".sidebar")).toHaveClass(/open/);
+  await page.locator(".side-nav").filter({ hasText: "设置" }).click();
+  await expect(page.locator(".settings-view")).toBeVisible();
+  // 返回聊天并发消息
+  await page.locator("header .icon-btn").last().click();
+  await selectModel(page, "mock-lifecycle");
+  await sendPrompt(page, "你好");
+  await expect(page.locator(".msg-parts.assistant .msg-text").last()).toContainText("你好", { timeout: 20_000 });
+});

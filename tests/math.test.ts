@@ -27,3 +27,12 @@ test("leaves text without latex delimiters unchanged", () => {
 test("unbalanced opener is left as-is", () => {
   assert.equal(normalizeMathDelimiters("未闭合 \\(m"), "未闭合 \\(m");
 });
+
+test("complex formulas with subscript/double-prime/sqrt survive normalization", () => {
+  // V_eff'' 类：下标 + 双撇 + 根式
+  const src = "势能 \\(V_{\\mathrm{eff}}'' = \\sqrt{\\omega^2-\\frac{g^2}{R^2}}\\)，块级 \\[ E = mc^2 \\]";
+  const out = normalizeMathDelimiters(src);
+  assert.equal(out, "势能 $V_{\\mathrm{eff}}'' = \\sqrt{\\omega^2-\\frac{g^2}{R^2}}$，块级 $$ E = mc^2 $$");
+  assert.ok(out.startsWith("势能 $V_{\\mathrm{eff}}''"), "inline math with double-prime preserved");
+  assert.match(out, /\$\$/);
+});
