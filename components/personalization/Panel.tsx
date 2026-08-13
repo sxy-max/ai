@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { STYLE_PRESETS, type MemoryItem, type PersonalizationProfile, type StyleMode } from "../../lib/personalization";
+import { useRef, useState } from "react";
+import { parseSkillMarkdown, STYLE_PRESETS, type MemoryItem, type PersonalizationProfile, type SkillItem, type StyleMode } from "../../lib/personalization";
 
 function uid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -18,8 +18,11 @@ export default function PersonalizationPanel({
   const [newText, setNewText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [importMsg, setImportMsg] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const setMemory = (memory: MemoryItem[]) => onChange({ ...profile, memory });
+  const setSkills = (skills: SkillItem[]) => onChange({ ...profile, skills });
   const addMemory = () => {
     const text = newText.trim();
     if (!text) return;
@@ -41,6 +44,25 @@ export default function PersonalizationPanel({
 
   const setStyleMode = (mode: StyleMode) => onChange({ ...profile, style: { ...profile.style, mode } });
   const setCustomRules = (customRules: string) => onChange({ ...profile, style: { mode: "custom", customRules } });
+
+  const importSkills = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setImportMsg("");
+    const added: SkillItem[] = [];
+    for (const file of Array.from(files).slice(0, 10)) {
+      const text = await file.text().catch(() => "");
+      const parsed = parseSkillMarkdown(text, file.name);
+      if (!parsed) continue;
+      added.push({ id: uid(), name: parsed.name, description: parsed.description, content: parsed.content, enabled: true });
+    }
+    if (!added.length) {
+      setImportMsg("无法解析该文件：需要 .md / .txt 且包含可读内容。");
+      return;
+    }
+    setSkills([...added, ...profile.skills].slice(0, 40));
+    setImportMsg(`已导入 ${added.length} 个 Skill（${added.map((s) => s.name).join("、")}）`);
+    if (fileRef.current) fileRef.current.value = "";
+  };
 
   const enabledCount = profile.memory.filter((m) => m.enabled).length;
 
@@ -101,6 +123,33 @@ export default function PersonalizationPanel({
           </div>
         )}
         <p className="pz-note">回复风格作为独立 personalization context 注入，安全规则永远优先于个人化偏好。</p>
+      </section>
+
+      <section className="pz-section">
+        <div className="pz-head">
+          <h3>我的 Skills</h3>
+          <span className="pz-count">{profile.skills.filter((s) => s.enabled).length}/{profile.skills.length} 已启用 · 按当前任务自动选择</span>
+        </div>
+        <div className="pz-tools">
+          <label className="pz-btn" style={{ cursor: "pointer" }}>导入 Skill<input ref={fileRef} type="file" accept=".md,.markdown,.txt" multiple hidden onChange={(e) => { void importSkills(e.target.files); }} /></label>
+        </div>
+        {importMsg && <p className="pz-note">{importMsg}</p>}
+        <div className="pz-list">
+          {profile.skills.length === 0 && <p className="pz-empty">还没有 Skill。导入一个 SKILL.md（支持 YAML frontmatter 的 name/description），Go AI 会在相关任务时自动使用它。</p>}
+          {profile.skills.map((s) => (
+            <div className={`pz-item ${s.enabled ? "" : "off"}`} key={s.id}>
+              <label className="pz-toggle"><input type="checkbox" checked={s.enabled} onChange={(e) => setSkills(profile.skills.map((x) => (x.id === s.id ? { ...x, enabled: e.target.checked } : x)))} /></label>
+              <div className="pz-skill">
+                <b>{s.name}</b>
+                {s.description && <span>{s.description}</span>}
+              </div>
+              <div className="pz-item-actions">
+                <button className="pz-mini danger" onClick={() => setSkills(profile.skills.filter((x) => x.id !== s.id))} title="删除">×</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="pz-note">Skill 只是用户写的指令/工作流知识，按任务相关度注入；绝不自动获得 MCP / shell 权限，也不会写入全局 ~/.claude。</p>
       </section>
     </div>
   );

@@ -8,7 +8,7 @@ import MessageParts from "../components/message/MessageParts";
 import PersonalizationPanel from "../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
 import { transformAllHtml } from "../lib/message/transform";
-import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, type PersonalizationProfile } from "../lib/personalization";
+import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, selectRelevantSkills, type PersonalizationProfile } from "../lib/personalization";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 async function copyText(text: string) {
@@ -413,7 +413,7 @@ export default function Home() {
     const res = await fetch("/api/agent/task", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ conversationId: convId, jobId, prompt, memory: pz.memory ? pz.memory.split("\n").map((s) => s.replace(/^- /, "").trim()).filter(Boolean) : [], style: pz.style, skills: [] }),
+      body: JSON.stringify({ conversationId: convId, jobId, prompt, memory: pz.memory ? pz.memory.split("\n").map((s) => s.replace(/^- /, "").trim()).filter(Boolean) : [], style: pz.style, skills: selectRelevantSkills(profile.skills, prompt).map((s) => s.content) }),
     });
     if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 200) || "文件处理失败");
 
@@ -571,6 +571,7 @@ export default function Home() {
         ).map(({ name, mime, kind, text, dataUrl }) => ({ name, mime, kind, text, dataUrl }))
       }));
       const pz = buildPersonalizationContext(profile);
+      const relevantSkills = selectRelevantSkills(profile.skills, prompt);
       const requestBody = JSON.stringify({
         provider: activeModel.provider,
         model: activeModel.id,
@@ -579,7 +580,8 @@ export default function Home() {
         webContext: external.webContext,
         urlContext: external.urlContext,
         options,
-        personalization: pz
+        personalization: pz,
+        skills: relevantSkills.map((s) => ({ name: s.name, content: s.content }))
       });
       if (new Blob([requestBody]).size > MAX_CLIENT_REQUEST_BYTES) throw new Error("当前对话和附件超过 3.3 MB，请新建对话或减少文件/图片");
       const res = await fetch("/api/chat", {

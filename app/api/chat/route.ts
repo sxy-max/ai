@@ -7,7 +7,7 @@ import { detectSkill, skillInstruction } from "../../../lib/skills";
 import { effectiveTemperature } from "../../../lib/modelPolicy";
 import { quotaCheck, quotaRecordSuccess } from "../../../lib/quota";
 import { buildVisualContextBlock, describeImageBase64, modelSupportsVision, type VisualDescription } from "../../../lib/vision";
-import { personalizationSystemText } from "../../../lib/personalization";
+import { personalizationSystemText, skillsSystemText } from "../../../lib/personalization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +25,7 @@ type Body = {
   urlContext?: string;
   options?: ChatOptions;
   personalization?: { memory?: string; style?: string };
+  skills?: { name: string; content: string }[];
 };
 type StreamEvent = { type: "meta" | "text" | "reasoning" | "error" | "done"; value?: string; protocol?: Protocol; provider?: Provider; stopReason?: string };
 
@@ -189,6 +190,18 @@ function validateBody(value: unknown): Body {
     };
   }
 
+  let skills: Body["skills"];
+  if (value.skills != null) {
+    if (!Array.isArray(value.skills) || value.skills.length > 8) throw new HttpError(400, "Invalid skills");
+    skills = value.skills
+      .filter((s: unknown): s is Record<string, unknown> => isRecord(s))
+      .map((s) => ({
+        name: typeof s.name === "string" ? s.name.slice(0, 80) : "Skill",
+        content: typeof s.content === "string" ? s.content.slice(0, 30000) : "",
+      }))
+      .filter((s) => s.content.trim());
+  }
+
   return {
     provider: value.provider,
     model: value.model,
@@ -197,7 +210,8 @@ function validateBody(value: unknown): Body {
     webContext,
     urlContext,
     options,
-    personalization
+    personalization,
+    skills
   };
 }
 
@@ -455,7 +469,7 @@ export async function POST(request: Request) {
   const protocol = protocolForModel(body.model, body.provider);
   if (!protocol) return errorResponse(`Unknown protocol route for model: ${body.model}`, 400);
   const skillText = skillInstruction(detectSkill(body.messages));
-  const personalizationText = personalizationSystemText({ memory: body.personalization?.memory || "", style: body.personalization?.style || "" });
+  const personalizationText = [personalizationSystemText({ memory: body.personalization?.memory || "", style: body.personalization?.style || "" }), skillsSystemText(body.skills || [])].filter(Boolean).join("\n\n");
   const key = body.provider === "anthropic" ? process.env.ANTHROPIC_API_KEY : process.env.OPENCODE_GO_API_KEY;
   if (!key) return errorResponse(body.provider === "anthropic" ? "Anthropic is not configured" : "OpenCode Go is not configured", 503);
 

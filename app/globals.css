@@ -175,6 +175,9 @@
 .pz-mini{border:0;background:transparent;color:var(--muted-2);font-size:15px;padding:1px 5px;border-radius:6px}
 .pz-mini:hover{background:var(--hover);color:var(--text)}
 .pz-mini.danger:hover{color:var(--danger)}
+.pz-skill{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pz-skill b{font-size:13px;color:var(--text-2)}
+.pz-skill span{font-size:11px;color:var(--muted);line-height:1.4}
 .pz-edit{flex:1;display:flex;flex-direction:column;gap:6px}
 .pz-edit textarea,.pz-add textarea{width:100%;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text-2);border-radius:9px;padding:8px 9px;font-size:13px;resize:vertical;outline:none}
 .pz-edit-actions{display:flex;gap:6px}
