@@ -47,6 +47,7 @@ test("TEST3 连续第二轮", async ({ page }) => {
 });
 
 test("TEST4 user KaTeX", async ({ page }) => {
+  await selectModel(page, "mock-lifecycle");
   await sendPrompt(page, "一个质量为 \\(m\\) 的小珠沿半径为 \\(R\\) 的圆环运动，角速度为 \\(\\omega\\)。");
   await expect(page.locator(".msg-parts.user .msg-text .katex").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".msg-parts.user .msg-text")).not.toContainText("\\(");
