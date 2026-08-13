@@ -9,6 +9,7 @@ import PersonalizationPanel from "../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, sanitizeForUpstream } from "../lib/message/lifecycle";
 import { transformAllHtml } from "../lib/message/transform";
 import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, selectRelevantSkills, type PersonalizationProfile } from "../lib/personalization";
+import { isFileTaskPrompt, resolveTaskTools } from "../lib/toolRegistry";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 async function copyText(text: string) {
@@ -39,14 +40,6 @@ type Message = { id: string; role: "user" | "assistant"; content: string; status
 type Artifact = { id: string; name: string; mime: string; size: number; downloadUrl: string };
 type FileTaskInfo = { id: string; file: File };
 
-const FILE_TASK_HINTS = ["修改这个", "编辑", "改一下", "改成", "改背景", "生成一个", "创建", "给我文件", "发文件", "生成 index", "帮我修", "处理这个", "根据截图", "按照截图", "修一下", "这个项目", "处理代码", "改一下这个", "改成浅色", "改成深色", "改颜色"];
-function isFileTaskPrompt(p: string, hasFiles: boolean) {
-  const t = String(p || "").toLowerCase();
-  if (!t.trim()) return false;
-  if (FILE_TASK_HINTS.some((h) => t.includes(h))) return true;
-  if (hasFiles && /(修改|编辑|改|处理|修复|根据|按照)/.test(t)) return true;
-  return false;
-}
 function toolLabel(n: string) {
   const m: Record<string, string> = { Read: "读取文件", Write: "写入文件", Edit: "修改文件", Glob: "查找文件", Grep: "搜索内容", Bash: "执行命令" };
   return m[n] || "处理文件";
@@ -108,12 +101,6 @@ function friendlyApiError(j: any): string {
 
 function extractUrls(text: string) {
   return Array.from(new Set(text.match(/https?:\/\/[^\s)\]}>"']+/g) || [])).slice(0, 5);
-}
-
-function shouldAutoSearch(text: string) {
-  const t = text.toLowerCase();
-  if (extractUrls(text).length) return false;
-  return /(今天|昨天|最新|现在|目前|今年|价格|套餐|发布|更新|新闻|政策|版本|官网|文档|下载|股价|天气|比赛|排行|latest|current|today|price|pricing|release|docs|news|2025|2026)/i.test(t);
 }
 
 function compactText(text: string, mode: ContextMode) {
@@ -496,18 +483,19 @@ export default function Home() {
     }
   }
 
-  async function getExternalContext(query: string, signal: AbortSignal, runId: number) {
+  async function getExternalContext(query: string, signal: AbortSignal, runId: number, tools: string[]) {
     const urls = extractUrls(query);
     const result = { webContext: "", urlContext: "", webSources: [] as WebSource[], urlSources: [] as WebSource[], webUsed: false, urlUsed: false };
-    if (runRef.current === runId) setSearchBusy(Boolean(urls.length) || searchMode === "on" || (searchMode === "auto" && shouldAutoSearch(query)));
+    const shouldFetch = tools.includes("url_fetch") && urls.length > 0;
+    const shouldSearch = tools.includes("web_search") && query.trim().length > 0;
+    if (runRef.current === runId) setSearchBusy(shouldFetch || shouldSearch);
     try {
-      if (urls.length) {
+      if (shouldFetch) {
         const r = await fetch("/api/fetch-url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ urls }), signal });
         const data = await r.json(); if (!r.ok) throw new Error(data.detail || data.error || "URL 读取失败");
         result.urlContext = data.content || ""; result.urlSources = data.sources || []; result.urlUsed = true;
       }
-      const shouldSearch = searchMode === "on" || (searchMode === "auto" && shouldAutoSearch(query));
-      if (shouldSearch && query.trim()) {
+      if (shouldSearch) {
         const r = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query, numResults: 6 }), signal });
         const data = await r.json(); if (!r.ok) throw new Error(data.detail || data.error || "搜索失败");
         result.webContext = data.content || ""; result.webSources = data.sources || []; result.webUsed = true;
@@ -553,6 +541,7 @@ export default function Home() {
     const hasImages = preparedAttachments.some((a) => a.kind === "image");
     const visionUsed = hasImages && selectedModel.vision !== true;
     if (visionUsed) setVisionBusy(true);
+    const taskTools = resolveTaskTools(prompt, { searchMode, hasUrls: extractUrls(prompt).length > 0, hasImages, hasFiles: preparedAttachments.length > 0 });
     const userBase: Message = { id: uid(), role: "user", content: prompt, attachments: preparedAttachments, webUsed: false, urlUsed: extractUrls(prompt).length > 0, visionUsed };
     const assistant: Message = { id: uid(), role: "assistant", content: "", reasoning: "", model: activeModel.key, provider: activeModel.provider };
     let outgoing: Message[] = [...messages, userBase];
@@ -563,7 +552,7 @@ export default function Home() {
     const _acc = createAccumulator();
 
     try {
-      const external = prompt ? await getExternalContext(prompt, controller.signal, runId) : { webContext: "", urlContext: "", webSources: [], urlSources: [], webUsed: false, urlUsed: false };
+      const external = prompt ? await getExternalContext(prompt, controller.signal, runId, taskTools) : { webContext: "", urlContext: "", webSources: [], urlSources: [], webUsed: false, urlUsed: false };
       if (runRef.current !== runId) return;
       const user = { ...userBase, webUsed: external.webUsed, urlUsed: external.urlUsed, webSources: external.webSources, urlSources: external.urlSources };
       outgoing = [...messages, user];
