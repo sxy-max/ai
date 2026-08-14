@@ -8,6 +8,9 @@ import { buildExecutionPlan } from "./executionPlan";
 import { generatePlan } from "../leader/planner";
 import { executeStep } from "./executor";
 import { notifyTaskFinished } from "./notify";
+import { WorkspaceManager } from "../workspace/service";
+
+const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 import {
   createAgentRun,
   completeAgentRun,
@@ -32,17 +35,30 @@ export type WorkerOptions = {
 
 const LEASE_SECONDS = 90;
 const LEASE_RENEW_INTERVAL_MS = 30_000;
+const WORKSPACE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 每 6 小时
+const WORKSPACE_TTL_MS = 7 * 24 * 60 * 60 * 1000;          // workspace TTL 7 天
 
 /** 启动任务 Worker 循环（阻塞；abort 时退出）。 */
 export async function runTaskWorkerLoop(options: WorkerOptions = {}): Promise<void> {
   const signal = options.signal || new AbortController().signal;
   const pollMs = options.pollMs ?? 1500;
   let consecutiveErrors = 0;
+  let lastWorkspaceCleanup = 0;
 
   console.log("[task-worker] 启动（poll", pollMs, "ms）");
   while (!signal.aborted) {
     try {
       await recoverOrphanedTasks();
+      // 定期清理过期 workspace（避免磁盘累积，WP12）
+      if (Date.now() - lastWorkspaceCleanup > WORKSPACE_CLEANUP_INTERVAL_MS) {
+        lastWorkspaceCleanup = Date.now();
+        try {
+          const removed = WorkspaceManager.cleanupExpired(WORKSPACES_ROOT, WORKSPACE_TTL_MS);
+          if (removed > 0) console.log(`[task-worker] 清理 ${removed} 个过期 workspace`);
+        } catch (error) {
+          console.error("[task-worker] workspace 清理失败:", error instanceof Error ? error.message : error);
+        }
+      }
       const taskId = await claimNextTask();
       if (taskId) {
         consecutiveErrors = 0;
