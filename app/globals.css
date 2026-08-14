@@ -321,6 +321,9 @@
 .status-badge.queued{background:#1b2430;color:#8fb4e8}
 .status-badge.planning{background:#20262e;color:#c7ced8}
 .status-badge.running{background:#10271c;color:#8dffc7}
+.status-badge.preparing_workspace{background:#1b2430;color:#8fb4e8}
+.status-badge.validating{background:#10271c;color:#8dffc7}
+.status-badge.retrying{background:#2b2213;color:#ffd27a}
 .status-badge.waiting_user{background:#2b2213;color:#ffd27a}
 .status-badge.paused{background:#2b2213;color:#ffd27a}
 .status-badge.completed{background:#10271c;color:#8dffc7}
