@@ -100,3 +100,10 @@
 **本地 E2E：7/7；unit/integration：257/257。**
 
 关键坑：task_steps.phase 列需服务器 ALTER（本地验证后服务器库缺列——部署时迁移幂等未覆盖新列，需手工 ALTER）；测试的 ArtifactService 需显式传 LocalObjectStorage（全局单例与测试隔离）。
+
+## V1.1 完成（2026-08-15，WP1-WP20，39 commits 已 push origin/main，tag go-ai-agent-first-v1）
+
+- V11 云端 E2E：7/7 等效（T1 MD 结构化、T2 CSV 去重排序、T3 图片+HTML（E2E 1 次波动失败后 repair 正确失败；独立复测 3/3 PASS）、T4 ZIP 多文件重打包、T10 二轮修改 11→22 版本化、T12 PPTX、T14 Docker 重启）
+- 本地：unit/integration 257/257、E2E 7/7、build PASS
+- 线上：ai-client/ai-task-worker 运行 V11 镜像；task_steps.phase 已 ALTER
+- 剩余已知缺陷：DeepSeek agent 对图片修改类任务偶发"只分析不交付"（repair loop 兜底为明确失败；复测 3/3 正常）；T7 视觉问答长 reasoning 截断（WP14 自动重试已接，待模型端验证）
