@@ -4,6 +4,9 @@ export type TaskStatus =
   | "queued"        // 排队等待 Worker
   | "planning"      // Leader 正在生成 Plan
   | "running"       // 步骤执行中
+  | "preparing_workspace" // 工作区任务：准备工作区
+  | "validating"    // 产物验证阶段
+  | "retrying"      // 自动纠错循环
   | "waiting_user"  // 等待用户输入
   | "paused"        // 用户暂停
   | "completed"

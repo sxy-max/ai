@@ -77,12 +77,13 @@ export async function runTaskWorkerLoop(options: WorkerOptions = {}): Promise<vo
   console.log("[task-worker] 已停止");
 }
 
-/** 孤儿回收（崩溃恢复，PRD §44「重启/断线后继续任务」）：租约过期的 planning/running 任务重新入队。 */
+/** 孤儿回收（崩溃恢复，PRD §44「重启/断线后继续任务」）：租约过期的执行态任务重新入队。 */
 export async function recoverOrphanedTasks(): Promise<number> {
   const result = await query(
     `UPDATE tasks SET status = 'queued', worker_id = '', lease_expires = NULL,
             error = '任务在上一轮执行中被中断，已重新入队', updated_at = now()
-     WHERE status IN ('planning', 'running') AND lease_expires IS NOT NULL AND lease_expires < now()
+     WHERE status IN ('planning', 'running', 'preparing_workspace', 'validating', 'retrying')
+       AND lease_expires IS NOT NULL AND lease_expires < now()
      RETURNING id`
   );
   for (const row of result.rows as Array<{ id: string }>) {
@@ -124,7 +125,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
 
   // 租约心跳：执行期间定期续期，崩溃后由其他 worker 按 lease_expires 回收
   const heartbeat = setInterval(() => {
-    void query("UPDATE tasks SET lease_expires = now() + make_interval(secs => $2) WHERE id = $1 AND status IN ('planning','running')", [taskId, LEASE_SECONDS]).catch(() => {});
+    void query("UPDATE tasks SET lease_expires = now() + make_interval(secs => $2) WHERE id = $1 AND status IN ('planning','running','preparing_workspace','validating','retrying')", [taskId, LEASE_SECONDS]).catch(() => {});
   }, LEASE_RENEW_INTERVAL_MS);
   heartbeat.unref?.();
 
@@ -169,6 +170,10 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       await updateTaskStage(task.id, step.title, progressFor(taskId, steps.length, step.seq));
       await emitTaskEvent(taskId, "step.started", { seq: step.seq, title: step.title, worker: step.worker_type });
 
+      if (step.worker_type === "dev" && task.status === "running") {
+        await updateTaskStatus(task.id, "preparing_workspace");
+        await updateTaskStatus(task.id, "running");
+      }
       const run = await createAgentRun({ taskId: task.id, stepId: step.id, workerType: step.worker_type });
       await emitTaskEvent(taskId, "agent.started", { runId: run.id, worker: step.worker_type, title: step.title });
 
@@ -229,6 +234,9 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     // 仅对含产物意图的任务（plan 有 artifact/dev 步骤）严格校验；纯文本任务（general 步骤）豁免。
     const hasArtifactIntent = steps.some((s) => s.worker_type === "artifact" || s.worker_type === "dev");
     if (hasArtifactIntent) {
+      if (task.status === "running") {
+        await updateTaskStatus(task.id, "validating").catch(() => {});
+      }
       const context = await buildPlanContext(task);
       const executionPlan = buildExecutionPlan(task, context.files);
       const artifacts = await listTaskArtifacts(task.id);
@@ -265,7 +273,7 @@ async function checkPoint(taskId: string, signal: AbortSignal): Promise<"ok" | "
     const row = await query<{ status: string }>("SELECT status FROM tasks WHERE id = $1", [taskId]);
     const status = row.rows[0]?.status;
     if (status === "cancelled") return "cancelled";
-    if (status === "running" || status === "planning" || status === "waiting_user" || status === "completed" || status === "failed") return "ok";
+    if (status === "running" || status === "planning" || status === "preparing_workspace" || status === "validating" || status === "retrying" || status === "waiting_user" || status === "completed" || status === "failed") return "ok";
     // paused：等待恢复
     await sleep(1500, signal);
   }

@@ -4,7 +4,7 @@ import type { TaskStatus } from "./types";
 
 export const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(["completed", "failed", "cancelled"]);
 
-export type TaskAction = "start" | "plan" | "execute" | "pause" | "resume" | "cancel" | "retry" | "continue" | "wait" | "finish" | "fail";
+export type TaskAction = "start" | "plan" | "execute" | "prepare" | "validate" | "pause" | "resume" | "cancel" | "retry" | "continue" | "wait" | "finish" | "fail";
 
 /** 状态机迁移表。from/to 语义；action 用于诊断与校验。 */
 const TRANSITIONS: Record<TaskStatus, Partial<Record<TaskStatus, TaskAction>>> = {
@@ -20,9 +20,29 @@ const TRANSITIONS: Record<TaskStatus, Partial<Record<TaskStatus, TaskAction>>> =
     completed: "finish"
   },
   running: {
-    waiting_user: "wait",   // 需要用户输入
+    preparing_workspace: "prepare",  // 工作区任务：进入工作区准备
+    validating: "validate",          // 产物验证阶段
+    retrying: "retry",               // 自动纠错循环
+    waiting_user: "wait",            // 需要用户输入
     paused: "pause",
     completed: "finish",
+    failed: "fail",
+    cancelled: "cancel"
+  },
+  preparing_workspace: {
+    running: "resume",       // 工作区就绪，继续执行
+    failed: "fail",
+    cancelled: "cancel",
+    paused: "pause"
+  },
+  validating: {
+    running: "resume",       // 验证通过，完成
+    retrying: "retry",       // 验证失败 → 纠错
+    failed: "fail",
+    cancelled: "cancel"
+  },
+  retrying: {
+    running: "resume",       // 修复后继续
     failed: "fail",
     cancelled: "cancel"
   },
@@ -66,6 +86,9 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   queued: "排队中",
   planning: "规划中",
   running: "执行中",
+  preparing_workspace: "准备工作区",
+  validating: "验证产物",
+  retrying: "自动修复中",
   waiting_user: "等待用户",
   paused: "已暂停",
   completed: "已完成",
