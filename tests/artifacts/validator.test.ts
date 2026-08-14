@@ -9,7 +9,7 @@ import { validateArtifactFormat } from "../../lib/artifacts/validator";
 process.env.ARTIFACTS_ROOT = path.join(os.tmpdir(), "goai-artifacts-validator-test");
 
 function put(filename: string, content: string | Buffer) {
-  const a = artifactService.createArtifact({ filename, content, kind: "file", source: "test" });
+  const a = artifactService.createArtifact({ filename, content, kind: "markdown", source: "upload" });
   return a.id;
 }
 
