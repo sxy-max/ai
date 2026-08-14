@@ -80,7 +80,7 @@ test("artifact.register：workspace 文件注册为可下载 Artifact", async ()
 
 test("code.python.exec：workspace 内执行且受路径边界约束", async () => {
   const ctx = makeCtx("py");
-  const result = await runTool("code.python.exec", { code: "import os\nprint(os.getcwd())\nprint(sorted(os.listdir('.')))" }, ctx);
+  const result = await runTool("code.python.exec", { code: "const os = require(\"os\"); console.log(process.cwd()); console.log(JSON.stringify(require(\"fs\").readdirSync(\".\")));" }, ctx);
   assert.equal(result.ok, true);
   assert.ok(String(result.output).includes(ctx.workspace!.root));
 });
