@@ -109,7 +109,7 @@ export async function preprocessFiles(files: Array<{ filename: string; mime: str
     } catch {
       contexts.push({
         type: "other", filename: file.filename, mime: file.mime || "application/octet-stream",
-        size: file.content.length, structure: {}, textPreview: ""
+        size: file.content.length, structure: {}, textPreview: "", metadata: {}
       });
     }
   }
