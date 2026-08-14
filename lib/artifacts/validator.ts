@@ -15,13 +15,15 @@ function pass(artifactId: string, filename: string, kind: string, checks: Record
   return { artifactId, filename, kind, ok: true, checks };
 }
 
-/** 验证产物格式；返回 null 表示跳过（未知类型按非空校验）。 */
+/** 验证产物格式；返回 null 表示跳过（未知类型按非空校验）。
+ *  content 可选：调用方传入时直接用（测试/内存场景）；缺省读 ArtifactService（生产）。 */
 export async function validateArtifactFormat(
   artifactId: string,
   filename: string,
-  kind: string
+  kind: string,
+  content?: Buffer
 ): Promise<ArtifactValidationResult | null> {
-  const buf = artifactService.readContent(artifactId);
+  const buf = content ?? artifactService.readContent(artifactId);
   if (!buf) return fail(artifactId, filename, kind, "exists", "产物内容缺失");
   if (buf.length === 0) return fail(artifactId, filename, kind, "nonempty", "产物为空");
 

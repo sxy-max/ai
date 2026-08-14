@@ -25,8 +25,9 @@ export class LocalObjectStorage implements ObjectStorageAdapter {
   private safeKey(key: string): string {
     const clean = String(key || "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
     if (!clean) throw new Error("INVALID_STORAGE_KEY");
-    const target = path.join(this.root, clean);
-    if (!target.startsWith(path.resolve(this.root) + path.sep) && target !== path.resolve(this.root)) {
+    const base = path.resolve(this.root);
+    const target = path.resolve(this.root, clean);
+    if (target !== base && !target.startsWith(base + path.sep)) {
       throw new Error("STORAGE_KEY_ESCAPE");
     }
     return clean;
