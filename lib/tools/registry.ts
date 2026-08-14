@@ -211,7 +211,7 @@ const codeTools: AgentTool[] = [
       const code = String(input.code || "");
       if (!code) return { ok: false, output: null, error: "code 必填" };
       // 安全边界：仅允许 workspace 内路径访问；真实沙盒（容器内执行）由 runtime 提供
-      const script = `import os\nos.chdir(${JSON.stringify(ws.root)})\n${code}`;
+      const script = `process.chdir(${JSON.stringify(ws.root)});\n${code}`;
       try {
         const { execFileSync } = await import("node:child_process");
         const output = execFileSync(process.execPath, ["-e", script], { timeout: 30_000, encoding: "utf8", cwd: ws.root });
