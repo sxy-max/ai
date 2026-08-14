@@ -3,13 +3,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { artifactService } from "../../lib/artifacts/service";
+import { ArtifactService } from "../../lib/artifacts/service";
+import { LocalObjectStorage } from "../../lib/storage/objectStorage";
 import { validateArtifactFormat } from "../../lib/artifacts/validator";
 
-process.env.ARTIFACTS_ROOT = path.join(os.tmpdir(), "goai-artifacts-validator-test");
+const service = new ArtifactService(path.join(os.tmpdir(), "goai-artifacts-validator-test"), new LocalObjectStorage(path.join(os.tmpdir(), "goai-artifacts-validator-test")));
 
 function put(filename: string, content: string | Buffer) {
-  const a = artifactService.createArtifact({ filename, content, kind: "markdown", source: "upload" });
+  const a = service.createArtifact({ filename, content, kind: "markdown", source: "upload" });
   return a.id;
 }
 
