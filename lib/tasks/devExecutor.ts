@@ -56,9 +56,23 @@ export type DevStepInput = {
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 
-/** 任务级 Job 阶段 → task 事件（保持 UI 可见性）。 */
-function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent): void {
+/** 任务级 Job 阶段 → task 事件（保持 UI 可见性）；同时落盘 events.ndjson 与日志（WP4）。 */
+function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { ndjson: string; stdout: string; stderr: string }): void {
   void (async () => {
+    if (recorder) {
+      try {
+        await (await import("node:fs")).promises.appendFile(recorder.ndjson, JSON.stringify({ ts: Date.now(), ...event }) + "\n");
+        if (event.type === "text") {
+          await (await import("node:fs")).promises.appendFile(recorder.stdout, String(event.text) + "\n");
+        }
+        if (event.type === "result") {
+          await (await import("node:fs")).promises.appendFile(recorder.stdout, String(event.summary) + "\n");
+        }
+        if (event.type === "error") {
+          await (await import("node:fs")).promises.appendFile(recorder.stderr, String(event.message) + "\n");
+        }
+      } catch {}
+    }
     try {
       switch (event.type) {
         case "status":
@@ -137,6 +151,18 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const store = new JobStore();
   await input.emit("agent.started", { worker: "dev", title: "Claude Code 沙盒执行中" });
 
+  // WP4：执行记录（runtime.json / events.ndjson / logs）
+  const agentDir = ws.dirs.agent;
+  const logsDir = ws.dirs.logs;
+  const eventsFile = path.join(agentDir, "events.ndjson");
+  const stdoutFile = path.join(logsDir, "stdout.log");
+  const stderrFile = path.join(logsDir, "stderr.log");
+  const recorder = { ndjson: eventsFile, stdout: stdoutFile, stderr: stderrFile };
+  await (await import("node:fs")).promises.writeFile(
+    path.join(agentDir, "runtime.json"),
+    JSON.stringify({ runtimeId: adapter.id, workspaceId: input.taskId, model: process.env.AGENT_MODEL || "deepseek-v4-flash", startedAt: Date.now() }, null, 2)
+  );
+
   const runOnce = async (prompt: string, attempt: number): Promise<JobRunOutcome> => {
     ws.writeTaskSpec({ title: prompt.slice(0, 60), prompt, visionMd: vision.visionMd, fileManifest: true });
     const outcome = await runAgentJob(
@@ -165,7 +191,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           return { id: artifact.id, kind: artifact.type as ArtifactKind, name: artifact.name, mime: artifact.mime, size: artifact.size, status: artifact.status as "ready", downloadUrl: `/api/artifacts/${artifact.id}` };
         }
       },
-      (event) => emitJobEvent(input.emit, event)
+      (event) => emitJobEvent(input.emit, event, recorder)
     );
     if (attempt === 0 && (outcome.status !== "done" || !outcome.result.ok)) {
       // 第一次执行失败 → 不自动重试（错误原因明确，留给用户重试）
