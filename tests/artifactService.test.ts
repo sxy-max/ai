@@ -4,13 +4,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ArtifactService } from "../lib/artifacts/service";
+import { LocalObjectStorage } from "../lib/storage/objectStorage";
 import { mimeFromFilename, mimeFromKind, kindFromFilename } from "../lib/artifacts/mime";
 import { sanitizeFilename, defaultFilename, computeExpiry, isExpired, normalizeArtifact } from "../lib/artifacts/metadata";
 import { transformContent } from "../lib/artifacts/transform";
 
 function makeService() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "go-ai-art-"));
-  return { service: new ArtifactService(root), root };
+  return { service: new ArtifactService(root, new LocalObjectStorage(root)), root };
 }
 
 function htmlDoc(lines: number): string {

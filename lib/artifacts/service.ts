@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { computeExpiry, normalizeArtifact, sanitizeFilename } from "./metadata";
+import { objectStorage, type ObjectStorageAdapter } from "../storage/objectStorage";
 import { kindFromFilename, mimeFromKind } from "./mime";
 import type { Artifact, ArtifactContent, ClientArtifact, CreateArtifactInput } from "./types";
 
@@ -11,14 +12,16 @@ function safeId(id: string): string {
   return String(id || "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64);
 }
 
-/** Artifact Service —— 本地磁盘实现（/data/artifacts + manifest.json），统一 create/read/过期/绑定。 */
+/** Artifact Service —— 经 ObjectStorageAdapter 存取（默认磁盘），manifest 记录元数据，统一 create/read/过期/绑定。 */
 export class ArtifactService {
-  /** root 用 path.resolve 归一化：Windows 下 "/data/artifacts" 需解析为盘符绝对路径，否则路径穿越防护的前缀比较（正/反斜杠）会误伤读操作。 */
-  constructor(root: string) {
+  /** root 用 path.resolve 归一化（Windows 盘符路径）；storage 为对象存储适配器（WP18）。 */
+  constructor(root: string, storage: ObjectStorageAdapter = objectStorage) {
     this.root = path.resolve(root);
+    this.storage = storage;
   }
 
   private readonly root: string;
+  private readonly storage: ObjectStorageAdapter;
 
   private manifestPath(): string {
     return path.join(this.root, MANIFEST_FILE);
@@ -45,8 +48,8 @@ export class ArtifactService {
     const mimeType = input.mimeType || mimeFromKind(kind);
     const id = randomUUID();
     const buf = Buffer.isBuffer(input.content) ? input.content : Buffer.from(String(input.content ?? ""), "utf8");
-    fs.mkdirSync(this.root, { recursive: true });
-    fs.writeFileSync(path.join(this.root, id), buf);
+    if (this.storage.putSync) this.storage.putSync(id, buf);
+    else void this.storage.put(id, buf); // 远程存储：异步写入（调用方可后续校验）
     const createdAt = Date.now();
     const artifact: Artifact = {
       id,
@@ -78,13 +81,7 @@ export class ArtifactService {
   readContent(id: string): Buffer | null {
     const sid = safeId(id);
     if (!sid) return null;
-    const p = path.join(this.root, sid);
-    if (!p.startsWith(this.root + path.sep) || !fs.existsSync(p)) return null;
-    try {
-      return fs.readFileSync(p);
-    } catch {
-      return null;
-    }
+    return this.storage.getSync ? this.storage.getSync(sid) : null;
   }
 
   getArtifactContent(id: string): ArtifactContent | null {
