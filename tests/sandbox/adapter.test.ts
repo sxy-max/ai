@@ -72,7 +72,7 @@ test("1. 正常流：工具/文本/结果/artifacts/done 归一化映射，且�
     const events: string[] = [];
     const result = await adapter.run(
       { job: { conversationId: "conv1", jobId: "job1" }, prompt: "改一下", model: "deepseek-v4-flash", memory: ["m"], style: "简洁", skills: ["s"], visionMd: true },
-      (event) => events.push(event.type)
+      (event) => { events.push(event.type); }
     );
     assert.deepEqual(events, ["tool", "text", "result", "artifacts", "done"]);
     assert.equal(result.ok, true);

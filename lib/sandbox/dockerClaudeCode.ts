@@ -4,7 +4,12 @@
  * 把原始事件归一化为 SandboxRunEvent，统一超时 / 错误分类。
  */
 
-import type { SandboxRunEvent, SandboxRuntimeAdapter, SandboxRunRequest, SandboxRunResult } from "./adapter";
+import fs from "node:fs";
+import path from "node:path";
+import type {
+  AgentRuntimeAdapter, CollectedOutput, RuntimePrepareResult,
+  SandboxRunEvent, SandboxRunRequest, SandboxRunResult
+} from "./adapter";
 
 const DEFAULT_AGENT_URL = "http://go-ai-file-agent:18082";
 const DEFAULT_GATEWAY_URL = "http://cc-auth-gateway:18081";
@@ -29,7 +34,9 @@ type RawContainerEvent = {
   message?: unknown;
 };
 
-export class GoFileAgentAdapter implements SandboxRuntimeAdapter {
+export class GoFileAgentAdapter implements AgentRuntimeAdapter {
+  readonly id = "claude-code-file-agent";
+  readonly available = true;
   private readonly agentUrl: string;
   private readonly gatewayBaseUrl: string;
   private readonly gatewayToken: string;
@@ -44,7 +51,54 @@ export class GoFileAgentAdapter implements SandboxRuntimeAdapter {
     this.defaultTimeoutMs = options.timeoutMs ?? (Number(process.env.AGENT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS);
   }
 
-  async run(request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void): Promise<SandboxRunResult> {
+  async prepare(): Promise<RuntimePrepareResult> {
+    try {
+      const probe = await fetch(`${this.agentUrl}/health`, { signal: AbortSignal.timeout(3000), cache: "no-store" });
+      if (!probe.ok) return { ok: false, error: `file-agent 容器健康检查失败（HTTP ${probe.status}）` };
+      return { ok: true, detail: "claude-code-file-agent 就绪" };
+    } catch {
+      try {
+        await fetch(`${this.agentUrl}/task`, { method: "HEAD", signal: AbortSignal.timeout(3000) });
+        return { ok: true, detail: "claude-code-file-agent 可达" };
+      } catch {
+        return { ok: false, error: "file-agent 容器不可达（go-ai-file-agent:18082 未运行？）" };
+      }
+    }
+  }
+
+  async collectOutputs(workspaceRoot: string): Promise<CollectedOutput[]> {
+    const out: CollectedOutput[] = [];
+    const push = (dir: string) => {
+      const abs = path.join(workspaceRoot, dir);
+      if (!fs.existsSync(abs)) return;
+      for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+        out.push({
+          relPath: `${dir}/${entry.name}`,
+          absPath: path.join(abs, entry.name),
+          size: entry.isFile() ? fs.statSync(path.join(abs, entry.name)).size : 0,
+          isDir: entry.isDirectory()
+        });
+      }
+    };
+    push("output");
+    push("artifacts");
+    return out;
+  }
+
+  async cancel(jobId: string): Promise<void> {
+    void jobId; // 取消由上层 AbortController 完成（run 已接 signal）
+  }
+
+  async cleanup(jobId: string): Promise<void> {
+    void jobId;
+  }
+
+  /** execute = run（AgentRuntimeAdapter 主入口；SandboxRuntimeAdapter 兼容别名）。 */
+  execute(request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void | Promise<void>): Promise<SandboxRunResult> {
+    return this.run(request, onEvent);
+  }
+
+  async run(request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void | Promise<void>): Promise<SandboxRunResult> {
     const started = Date.now();
     const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMs;
     const payload = {
@@ -63,13 +117,23 @@ export class GoFileAgentAdapter implements SandboxRuntimeAdapter {
 
     let upstream: Response;
     try {
-      upstream = await fetch(`${this.agentUrl}/task`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(timeoutMs),
-        cache: "no-store",
-      });
+      const controller = new AbortController();
+      const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
+      if (request.signal) {
+        if (request.signal.aborted) controller.abort();
+        else request.signal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+      try {
+        upstream = await fetch(`${this.agentUrl}/task`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+          cache: "no-store",
+        });
+      } finally {
+        clearTimeout(timeoutTimer);
+      }
     } catch (error) {
       if (isTimeoutError(error)) {
         onEvent({ type: "error", message: "沙箱执行超时" });

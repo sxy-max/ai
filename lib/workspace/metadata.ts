@@ -8,17 +8,33 @@ import type { WorkspaceDirs, WorkspaceLimits, WorkspaceMeta } from "./types";
 export const META_FILE = "workspace.json";
 export const INTERNAL_DIR = ".go-ai";
 export const INPUT_DIR = "input";
+export const VISION_DIR = "vision";
+export const WORKING_DIR = "working";
 export const OUTPUT_DIR = "output";
 export const ARTIFACTS_DIR = "artifacts";
 export const TASK_DIR = "task";
+export const LOGS_DIR = "logs";
 
+/** 目录语义（稳定契约，Agent 只在这些目录内工作）：
+ *  task/   任务说明与上下文（task.json/task.md/context.json）
+ *  input/  用户上传的原始文件（只读语义，Agent 不应改写）
+ *  vision/ 视觉预处理产物（vision.json/reference.md）
+ *  working/ Agent 可编辑的工作副本
+ *  output/ 最终交付文件（Agent 产出到此）
+ *  artifacts/ 产物清单
+ *  logs/   结构化执行日志
+ *  .go-ai/ 内部元数据（v7 兼容）
+ */
 export function buildDirs(root: string): WorkspaceDirs {
   return {
     root,
     input: path.join(root, INPUT_DIR),
+    vision: path.join(root, VISION_DIR),
+    working: path.join(root, WORKING_DIR),
     output: path.join(root, OUTPUT_DIR),
     artifacts: path.join(root, ARTIFACTS_DIR),
     task: path.join(root, TASK_DIR),
+    logs: path.join(root, LOGS_DIR),
     internal: path.join(root, INTERNAL_DIR),
   };
 }

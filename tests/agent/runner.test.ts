@@ -6,18 +6,26 @@ import path from "node:path";
 import { WorkspaceManager } from "../../lib/workspace/service";
 import { JobStore } from "../../lib/agent/jobStore";
 import { runAgentJob } from "../../lib/agent/runner";
-import type { SandboxRuntimeAdapter, SandboxRunEvent, SandboxRunRequest, SandboxRunResult } from "../../lib/sandbox/adapter";
+import type { AgentRuntimeAdapter, SandboxRunEvent, SandboxRunRequest, SandboxRunResult } from "../../lib/sandbox/adapter";
 import type { ClientArtifact } from "../../lib/artifacts/types";
 
 const FAKE_ARTIFACT: ClientArtifact = { id: "a1", kind: "markdown", name: "report.md", mime: "text/markdown", size: 5, status: "ready", downloadUrl: "/api/artifacts/a1" };
 
-function fakeAdapter(opts: { events?: SandboxRunEvent[]; result?: SandboxRunResult; onRequest?: (request: SandboxRunRequest) => void }): SandboxRuntimeAdapter {
+function fakeAdapter(opts: { events?: SandboxRunEvent[]; result?: SandboxRunResult; onRequest?: (request: SandboxRunRequest) => void }): AgentRuntimeAdapter {
+  const run = async (request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void | Promise<void>) => {
+    opts.onRequest?.(request);
+    for (const event of opts.events || []) await onEvent(event);
+    return opts.result ?? { ok: true, exitCode: 0 };
+  };
   return {
-    async run(request, onEvent) {
-      opts.onRequest?.(request);
-      for (const event of opts.events || []) await onEvent(event);
-      return opts.result ?? { ok: true, exitCode: 0 };
-    },
+    id: "fake",
+    available: true,
+    async prepare() { return { ok: true }; },
+    execute: run,
+    run,
+    async collectOutputs() { return []; },
+    async cancel() {},
+    async cleanup() {}
   };
 }
 
@@ -101,10 +109,13 @@ test("2. 失败（超时）：job failed、保留 error、仍发出错误事件"
 test("3. adapter 抛异常 → 也标记 failed 而非崩掉", async () => {
   const { ws } = makeWs();
   const store = new JobStore();
-  const adapter: SandboxRuntimeAdapter = {
-    async run() {
-      throw new Error("adapter exploded");
-    },
+  const adapter: AgentRuntimeAdapter = {
+    id: "fake", available: true,
+    async prepare() { return { ok: true }; },
+    async execute() { throw new Error("adapter exploded"); },
+    async collectOutputs() { return []; },
+    async cancel() {},
+    async cleanup() {}
   };
   const outcome = await runAgentJob(
     { conversationId: "c", jobId: "job3", prompt: "x", workspace: ws, adapter, store, registerArtifact: async () => null },

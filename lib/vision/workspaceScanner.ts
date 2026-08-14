@@ -57,7 +57,8 @@ export async function scanWorkspaceVision(
   );
   if (!images.length) return result;
 
-  const vDir = path.join(ws.dirs.internal, "vision");
+  const vDir = ws.dirs.vision;
+  const legacyVDir = path.join(ws.dirs.internal, "vision");
   for (const f of images) {
     const dataUrl = imageToDataUrl(f.absPath);
     if (!dataUrl) {
@@ -77,12 +78,15 @@ export async function scanWorkspaceVision(
       continue;
     }
     const base = path.basename(f.relPath, path.extname(f.relPath));
-    fs.mkdirSync(vDir, { recursive: true });
-    fs.writeFileSync(path.join(vDir, `${base}.md`), desc + "\n");
-    fs.writeFileSync(
-      path.join(vDir, `${base}.json`),
-      JSON.stringify({ source: f.relPath, ...parseVisionFields(desc) }, null, 2)
-    );
+    // 新契约写入 vision/；同时双写到 .go-ai/vision（旧 file-agent 容器兼容读取）
+    for (const dir of [vDir, legacyVDir]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${base}.md`), desc + "\n");
+      fs.writeFileSync(
+        path.join(dir, `${base}.json`),
+        JSON.stringify({ source: f.relPath, ...parseVisionFields(desc) }, null, 2)
+      );
+    }
     result.visionMd = true;
     result.scanned++;
   }

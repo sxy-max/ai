@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientArtifact } from "../artifacts/types";
-import type { SandboxRuntimeAdapter } from "../sandbox/adapter";
+import type { AgentRuntimeAdapter } from "../sandbox/adapter";
 import { statusForTool, statusLabel, toolLabel } from "../job/events";
 import type { JobEvent, JobStatus } from "../job/events";
 import type { WorkspaceManager } from "../workspace/service";
@@ -30,7 +30,7 @@ export type RunAgentJobInput = {
   visionContext?: string;
   timeoutMs?: number;
   workspace: WorkspaceManager;
-  adapter: SandboxRuntimeAdapter;
+  adapter: AgentRuntimeAdapter;
   store: JobStore;
   /** 把 workspace 内文件登记进 Artifact Service；返回 null 表示跳过。 */
   registerArtifact: (name: string, content: Buffer) => Promise<ClientArtifact | null | undefined>;
@@ -97,7 +97,7 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
 
   let result: { ok: boolean; exitCode?: number; error?: string; partial?: boolean };
   try {
-    const ran = await adapter.run(request, async (event) => {
+    const ran = await adapter.execute(request, async (event) => {
       switch (event.type) {
         case "tool": {
           emit({ type: "tool", name: event.name, label: toolLabel(event.name) });

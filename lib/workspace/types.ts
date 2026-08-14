@@ -14,9 +14,12 @@ export type WorkspaceLimits = {
 export type WorkspaceDirs = {
   root: string;
   input: string;
+  vision: string;
+  working: string;
   output: string;
   artifacts: string;
   task: string;
+  logs: string;
   internal: string;
 };
 
