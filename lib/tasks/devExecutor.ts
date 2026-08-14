@@ -116,7 +116,10 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   });
 
   // 6. 执行（事件映射 task_events）；无产物时自动重试一次（强化交付指令）
-  const jobId = `task-${input.taskId}`;
+  // 路径契约：file-agent 容器按 {conversationId}/{jobId} 定位 workspace
+  // → conversationId="tasks"、jobId={taskId} 与 WORKSPACES_ROOT/tasks/{taskId} 对齐（agent 才能看到 input/）
+  const jobId = input.taskId;
+  const conversationId = "tasks";
   const store = new JobStore();
   await input.emit("agent.started", { worker: "dev", title: "Claude Code 沙盒执行中" });
 
@@ -124,7 +127,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     ws.writeTaskSpec({ title: prompt.slice(0, 60), prompt, visionMd: vision.visionMd, fileManifest: true });
     const outcome = await runAgentJob(
       {
-        conversationId: jobId,
+        conversationId,
         jobId,
         prompt,
         maxTurns: 15,
