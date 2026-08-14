@@ -8,6 +8,7 @@ import { effectiveTemperature } from "../../../lib/modelPolicy";
 import { quotaCheck, quotaRecordSuccess } from "../../../lib/quota";
 import { buildVisualContextBlock, describeImageBase64, modelSupportsVision, type VisualDescription } from "../../../lib/vision";
 import { personalizationSystemText, skillsSystemText } from "../../../lib/personalization";
+import { classifyTask } from "../../../lib/taskRouter";
 import { classifyUpstreamError, friendlyStreamError } from "../../../lib/modelErrors";
 
 export const runtime = "nodejs";
@@ -469,6 +470,18 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof HttpError) return errorResponse(error.message, error.status);
     return errorResponse("Invalid request", 400);
+  }
+
+  // WP2 防线：任务型请求禁止退回普通聊天（前端已分流，此处防直连绕过）
+  const lastUser = [...body.messages].reverse().find((m) => m.role === "user");
+  if (lastUser) {
+    const intent = classifyTask({
+      message: lastUser.content || "",
+      attachments: (lastUser.attachments || []).map((a) => ({ kind: a.kind === "image" ? "image" : "text", mime: a.mime, name: a.name }))
+    });
+    if (intent && (intent.type === "artifact" || intent.type === "agent_workspace")) {
+      return errorResponse("任务型请求必须走任务系统（/api/tasks），普通聊天不处理文件/工作区任务。", 422, { "x-task-route-required": "true" });
+    }
   }
 
   if (!verifyModelAccess(body.modelToken, body.provider, body.model)) return errorResponse("Model access token is invalid or expired; reload the model list", 403);
