@@ -219,6 +219,7 @@ export default function Home() {
   const [storageReady, setStorageReady] = useState(false);
   const [currentId, setCurrentId] = useState<string>(uid());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [retriedForLength, setRetriedForLength] = useState(false);
   async function copyMessage(m: Message) { await copyText(m.content || ""); setCopiedId(m.id); setTimeout(() => setCopiedId(null), 1500); }
   const abortRef = useRef<AbortController | null>(null);
   const authRunRef = useRef(0);
@@ -579,7 +580,8 @@ export default function Home() {
 
       const options = {
         temperature,
-        maxOutputTokens: maxOutputTokens.trim() ? Number(maxOutputTokens) : null,
+        // WP14：reasoning 截断重试时自动提高输出上限（16K），避免再次 stop=length
+        maxOutputTokens: retriedForLength ? 16384 : (maxOutputTokens.trim() ? Number(maxOutputTokens) : null),
         reasoningEffort
       };
       const requestMessages = sanitizeForUpstream(outgoing.slice(-40));
@@ -653,6 +655,19 @@ export default function Home() {
       const _finalText = String(streamedText || "").trim();
       const _finalReason = String(streamedReasoning || "").trim();
       const _hasArtifact = !!(assistant.artifacts && assistant.artifacts.length);
+
+      // WP14：stop=length 且 reasoning-only（无 final 无 artifact）→ 自动重试一次（提高 max_tokens）
+      if (!_finalText && !_hasArtifact && _finalReason && /length|max_tokens/i.test(stopReason) && !retriedForLength) {
+        setError("推理内容较长被截断，正在用更高输出上限重试…");
+        setInput(prompt);  // 恢复输入框
+        setBusy(false);
+        // 重发：把本次推理排除在上下文外（incomplete 不进下一轮），仅保留用户原始消息
+        const baseUser = outgoing.find((m) => m.role === "user");
+        setMessages(baseUser ? [baseUser] : []);
+        setRetriedForLength(true);
+        void send();
+        return;
+      }
       const _status = finalizeStatus({ text: streamedText, reasoning: streamedReasoning, parts: [] }, _hasArtifact);
       const _content = !_finalText ? (_finalReason ? "（模型完成了推理，但没有返回最终回答，可以重试。）" : "") : streamedText;
       const completed = [...outgoing, { ...assistant, content: _content, reasoning: streamedReasoning, status: _status }];
