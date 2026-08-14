@@ -19,6 +19,8 @@ export type PlanStep = {
   worker_type: WorkerType;
   title: string;
   goal: string;
+  /** 执行阶段（WP10：有限 Step 语义，UI/恢复用）。 */
+  phase?: string;
 };
 
 export type TaskRow = {
@@ -49,6 +51,7 @@ export type TaskRow = {
 export type TaskStepRow = {
   id: string;
   task_id: string;
+  phase?: string;
   seq: number;
   worker_type: WorkerType;
   title: string;

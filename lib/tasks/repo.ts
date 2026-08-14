@@ -74,10 +74,10 @@ export async function createSteps(taskId: string, steps: PlanStep[]): Promise<Ta
   return withTransaction(async (client) => {
     for (const step of steps) {
       await client.query(
-        `INSERT INTO task_steps (task_id, seq, worker_type, title, goal, status)
-         VALUES ($1, $2, $3, $4, $5, 'pending')
-         ON CONFLICT (task_id, seq) DO UPDATE SET worker_type = EXCLUDED.worker_type, title = EXCLUDED.title, goal = EXCLUDED.goal, status = 'pending', error = ''`,
-        [taskId, step.seq, step.worker_type, step.title, step.goal]
+        `INSERT INTO task_steps (task_id, seq, worker_type, phase, title, goal, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+         ON CONFLICT (task_id, seq) DO UPDATE SET worker_type = EXCLUDED.worker_type, phase = EXCLUDED.phase, title = EXCLUDED.title, goal = EXCLUDED.goal, status = 'pending', error = ''`,
+        [taskId, step.seq, step.worker_type, step.phase || "", step.title, step.goal]
       );
     }
     const result = await client.query<Record<string, unknown>>(

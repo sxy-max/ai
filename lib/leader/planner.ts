@@ -98,11 +98,12 @@ export function planFromRules(task: TaskRow, context: PlanContext): PlanStep[] {
     const steps: PlanStep[] = [];
     const fileNames = (context.files || []).map((f) => f.filename.toLowerCase());
     if (fileNames.length) {
-      steps.push({ seq: 1, worker_type: "general", title: "分析输入材料", goal: `阅读并分析用户提供的文件（${fileNames.join("、")}），提取关键信息与要点。` });
+      steps.push({ seq: 1, worker_type: "general", phase: "ANALYZE_INPUT", title: "分析输入材料", goal: `阅读并分析用户提供的文件（${fileNames.join("、")}），提取关键信息与要点。` });
     }
     steps.push({
       seq: steps.length + 1,
       worker_type: "dev",
+      phase: "RUN_AGENT",
       title: "在工作区执行任务",
       goal: `在隔离工作区中执行：${task.goal}。读取 input/ 下的文件（含图片的视觉描述），按任务要求修改/生成文件，验证后产出到 outputs/。`
     });

@@ -8,6 +8,22 @@ import type { TaskRow } from "./types";
 import type { TaskCompletionContract } from "./completion";
 import { artifactKindFromGoal } from "./executor";
 
+/** 有限 Step 类型（WP10）：LLM 不得任意创造无法执行的步骤。 */
+export type ExecutionStepType =
+  | "ANALYZE_INPUT"
+  | "VISION_ANALYSIS"
+  | "PREPARE_WORKSPACE"
+  | "RUN_AGENT"
+  | "GENERATE_ARTIFACT"
+  | "VALIDATE_ARTIFACT"
+  | "PACKAGE_OUTPUT";
+
+export type ExecutionStepTemplate = {
+  phase: ExecutionStepType;
+  worker: "general" | "research" | "artifact" | "dev";
+  description: string;
+};
+
 export type ExecutionType =
   | "chat"
   | "artifact_generation"
@@ -35,7 +51,26 @@ export type TaskExecutionPlan = {
   capabilities: string[];
   /** 完成契约（WP2）：系统级判定依据，Agent 声称完成不生效。 */
   contract: TaskCompletionContract;
+  /** 步骤模板（WP10）：期望执行阶段序列，持久化到 task_steps.phase。 */
+  stepsTemplate: ExecutionStepTemplate[];
 };
+
+/** 按执行类型产出期望步骤阶段模板（与 planner 产出步骤对齐；LLM 不可任意扩展）。 */
+function stepsTemplateFor(executor: string, kind: string | null, hasImages: boolean, hasZip: boolean): ExecutionStepTemplate[] {
+  if (executor === "artifact") {
+    return [
+      { phase: "ANALYZE_INPUT", worker: "general", description: "分析输入材料" },
+      { phase: "GENERATE_ARTIFACT", worker: "artifact", description: `生成 ${kind || "文件"}` },
+      { phase: "VALIDATE_ARTIFACT", worker: "artifact", description: "验证产物" }
+    ];
+  }
+  const templates: ExecutionStepTemplate[] = [];
+  if (hasImages) templates.push({ phase: "VISION_ANALYSIS", worker: "general", description: "视觉分析图片" });
+  templates.push({ phase: "PREPARE_WORKSPACE", worker: "general", description: "准备工作区" });
+  templates.push({ phase: "RUN_AGENT", worker: "dev", description: hasZip ? "处理项目并重新打包" : "在工作区执行修改" });
+  templates.push({ phase: "VALIDATE_ARTIFACT", worker: "dev", description: "验证产物" });
+  return templates;
+}
 
 const DEFAULT_TIMEOUT = 15 * 60 * 1000;
 
@@ -64,7 +99,8 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
         expectations: kind ? [{ kind, minCount: 1, validate: "format" }] : [],
         minArtifacts: 1,
         validationPolicy: "strict"
-      }
+      },
+      stepsTemplate: stepsTemplateFor("artifact", kind, hasImages, false)
     };
   }
 
@@ -83,7 +119,8 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
         expectations: [] as Array<{ kind?: string; filenamePattern?: string; minCount?: number; mustBeNonEmpty?: boolean; validate?: "format" | "none" }>,
         minArtifacts: 1,
         validationPolicy: "strict" as const
-      }
+      },
+      stepsTemplate: stepsTemplateFor("workspace", null, hasImages, hasZip)
     };
     if (hasImages) {
       return {
@@ -124,7 +161,8 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
     expectedArtifacts: [],
     timeout: 5 * 60 * 1000,
     capabilities: ["chat"],
-    contract: { expectations: [], minArtifacts: 0, validationPolicy: "strict" }
+    contract: { expectations: [], minArtifacts: 0, validationPolicy: "strict" },
+    stepsTemplate: []
   };
 }
 

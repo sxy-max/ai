@@ -10,6 +10,17 @@ export const STATUS_META: Record<string, { label: string }> = {
   cancelled: { label: "已取消" }
 };
 
+/** Step 阶段中文标签（WP10：有限 Step 语义）。 */
+export const STEP_PHASE_LABELS: Record<string, string> = {
+  ANALYZE_INPUT: "分析输入",
+  VISION_ANALYSIS: "视觉分析",
+  PREPARE_WORKSPACE: "准备工作区",
+  RUN_AGENT: "Agent 执行",
+  GENERATE_ARTIFACT: "生成产物",
+  VALIDATE_ARTIFACT: "验证产物",
+  PACKAGE_OUTPUT: "打包输出"
+};
+
 export const WORKER_LABELS: Record<string, string> = {
   general: "General Worker",
   research: "Research Worker",

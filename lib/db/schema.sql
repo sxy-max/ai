@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS task_steps (
   task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   seq INTEGER NOT NULL,
   worker_type TEXT NOT NULL,              -- general|research|artifact|dev
+  phase TEXT NOT NULL DEFAULT '',        -- ANALYZE_INPUT|VISION_ANALYSIS|PREPARE_WORKSPACE|RUN_AGENT|GENERATE_ARTIFACT|VALIDATE_ARTIFACT|PACKAGE_OUTPUT
   title TEXT NOT NULL,
   goal TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending', -- pending|running|completed|failed|skipped|blocked|waiting_user
@@ -107,6 +108,7 @@ CREATE TABLE IF NOT EXISTS task_steps (
   UNIQUE (task_id, seq)
 );
 ALTER TABLE task_steps ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE task_steps ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_task_steps_task ON task_steps(task_id, seq);
 
 -- Agent Run（PRD §81 AgentRun）

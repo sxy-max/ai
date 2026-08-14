@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { STATUS_META, WORKER_LABELS, STEP_STATUS_LABELS, readableBytes, eventLabel, AGENT_STAGE_LABELS } from "../status-meta";
+import { STATUS_META, WORKER_LABELS, STEP_STATUS_LABELS, readableBytes, eventLabel, AGENT_STAGE_LABELS, STEP_PHASE_LABELS } from "../status-meta";
 import TopNav from "../../../components/TopNav";
 
 type TaskDetail = {
@@ -11,7 +11,7 @@ type TaskDetail = {
     progress: number; current_stage: string; plan: unknown[]; result_summary: string;
     error: string; created_at: string; started_at: string | null; completed_at: string | null;
   };
-  steps: Array<{ id: string; seq: number; worker_type: string; title: string; goal: string; status: string; detail: Record<string, unknown> | null; error: string; started_at: string | null; completed_at: string | null }>;
+  steps: Array<{ id: string; seq: number; worker_type: string; phase?: string; title: string; goal: string; status: string; detail: Record<string, unknown> | null; error: string; started_at: string | null; completed_at: string | null }>;
   artifacts: Array<{ id: string; name: string; type: string; version: number; size: number; mime: string; status: string; downloadUrl: string; created_at: string }>;
   events: Array<{ id: string; type: string; payload: Record<string, unknown>; created_at: string }>;
 };
@@ -184,7 +184,7 @@ export default function TaskDetailPage() {
                   <article key={step.id} className={`step-card ${step.status}`}>
                     <div className="step-head">
                       <span className="step-seq">{String(step.seq).padStart(2, "0")}</span>
-                      <div><strong>{step.title}</strong><small>{WORKER_LABELS[step.worker_type] || step.worker_type}</small></div>
+                      <div><strong>{step.title}</strong><small>{WORKER_LABELS[step.worker_type] || step.worker_type}{step.phase ? ` · ${STEP_PHASE_LABELS[step.phase] || step.phase}` : ""}</small></div>
                       <span className={`status-badge ${step.status}`}>{STEP_STATUS_LABELS[step.status] || step.status}</span>
                     </div>
                     <p className="step-goal">{step.goal}</p>
