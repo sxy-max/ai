@@ -14,6 +14,8 @@ export const OUTPUT_DIR = "output";
 export const ARTIFACTS_DIR = "artifacts";
 export const TASK_DIR = "task";
 export const LOGS_DIR = "logs";
+export const AGENT_DIR = "agent";
+export const VERIFICATION_DIR = "verification";
 
 /** 目录语义（稳定契约，Agent 只在这些目录内工作）：
  *  task/   任务说明与上下文（task.json/task.md/context.json）
@@ -35,6 +37,8 @@ export function buildDirs(root: string): WorkspaceDirs {
     artifacts: path.join(root, ARTIFACTS_DIR),
     task: path.join(root, TASK_DIR),
     logs: path.join(root, LOGS_DIR),
+    agent: path.join(root, AGENT_DIR),
+    verification: path.join(root, VERIFICATION_DIR),
     internal: path.join(root, INTERNAL_DIR),
   };
 }

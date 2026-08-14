@@ -167,18 +167,24 @@ test("dev 步骤：无产物 → 明确错误（DEV_OUTPUT_EMPTY）", async () =
     await onEvent({ type: "done", exitCode: 0 });
     return { ok: true, exitCode: 0 };
   };
-  const result = await runDevStep(
-    {
-      taskId: task.rows[0].id,
-      stepId: "step-1",
-      userId,
-      goal: "测试",
-      files: [],
-      signal: new AbortController().signal,
-      emit: async () => {}
-    },
-    { adapter: runtime, workspacesRoot: WORKSPACES_ROOT }
+  // 无产物 → 纠错循环重试仍无产物 → 明确失败（有限次数，不无限循环）
+  await assert.rejects(
+    runDevStep(
+      {
+        taskId: task.rows[0].id,
+        stepId: "step-1",
+        userId,
+        goal: "测试",
+        files: [],
+        signal: new AbortController().signal,
+        emit: async () => {}
+      },
+      { adapter: runtime, workspacesRoot: WORKSPACES_ROOT }
+    ),
+    /TASK_CONTRACT_RETRYABLE/
   );
-  // 中间步骤无产物不再失败（任务级校验在 worker 完成阶段）
-  assert.match(result.summary, /无产物交付/);
+  // attempts 记录落盘
+  const attemptsDir = path.join(WORKSPACES_ROOT, "tasks", task.rows[0].id, "agent", "attempts");
+  const attemptFiles = fs.existsSync(attemptsDir) ? fs.readdirSync(attemptsDir) : [];
+  assert.ok(attemptFiles.length >= 1, "应有 attempt 记录");
 });

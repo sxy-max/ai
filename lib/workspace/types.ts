@@ -20,6 +20,8 @@ export type WorkspaceDirs = {
   artifacts: string;
   task: string;
   logs: string;
+  agent: string;
+  verification: string;
   internal: string;
 };
 

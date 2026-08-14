@@ -22,12 +22,26 @@ import { runAgentJob, JobRunOutcome } from "../agent/runner";
 import { JobStore } from "../agent/jobStore";
 import { WorkspaceManager } from "../workspace/service";
 import { scanWorkspaceVision } from "../vision/workspaceScanner";
-import { registerTaskArtifact } from "./artifacts";
+import { registerTaskArtifact, listTaskArtifacts } from "./artifacts";
 import { emitTaskEvent } from "./repo";
 import type { AgentRuntimeAdapter } from "../sandbox/adapter";
 import type { ArtifactKind } from "../artifacts/types";
 import type { TaskEventType } from "./types";
 import type { JobEvent, JobStatus } from "../job/events";
+import { validateTaskCompletion, type TaskCompletionContract } from "./completion";
+
+/** workspace 状态摘要（修复指令用）：列出 output/working 文件与 input 文件。 */
+async function summarizeWorkspace(ws: WorkspaceManager): Promise<string> {
+  const fs = await import("node:fs");
+  const lines: string[] = [];
+  for (const dir of ["input", "working", "output"]) {
+    const abs = path.join(ws.root, dir);
+    if (!fs.existsSync(abs)) continue;
+    const names = fs.readdirSync(abs).filter((n) => !n.startsWith("."));
+    if (names.length) lines.push(`${dir}/: ${names.join(", ")}`);
+  }
+  return lines.join("；") || "（空）";
+}
 
 export type DevStepInput = {
   taskId: string;
@@ -204,18 +218,45 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     return collected;
   };
 
+  // WP3：结构化纠错循环 Execute→Validate→Repair→Validate（有限次数）
+  const maxAttempts = staged > 0 && input.goal.toLowerCase().includes("zip") ? 3 : 2;
+  const attemptsDir = path.join(ws.dirs.agent, "attempts");
+  await (await import("node:fs")).promises.mkdir(attemptsDir, { recursive: true });
+  const simpleContract: TaskCompletionContract = {
+    expectations: [{ kind: undefined, filenamePattern: "*", minCount: 1, validate: "format" }],
+    minArtifacts: 1,
+    validationPolicy: "strict"
+  };
+
   let outcome = await runOnce(input.goal, 0);
   let collected = await collectOutputs();
-  // 无产物 → 自动重试一次（强化交付指令），提升真实交付率
-  if (outcome.status === "done" && outcome.result.ok && outcome.artifactCount + collected === 0) {
-    await input.emit("progress", { detail: "Agent 未产出文件，正在重试（强化交付指令）" });
-    outcome = await runOnce(
-      `${input.goal}
+  let verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract);
 
-重要：你上一次没有产出任何文件。请实际修改/生成文件，并把最终文件写入 output/ 目录（或工作区根目录）。不要只描述，必须产出真实文件。`,
-      1
+  for (let attempt = 1; attempt <= maxAttempts && verdict.status !== "completed"; attempt++) {
+    // 记录 attempt（含失败原因与修复指令）
+    const record = {
+      attemptNumber: attempt,
+      failureReason: verdict.reason,
+      repairInstruction: `任务尚未完成。要求：${input.goal}
+当前缺失：${verdict.missing.map((m) => m.filenamePattern || m.kind || "非空文件").join("、") || "非空交付文件"}
+当前 Workspace 状态：${await summarizeWorkspace(ws)}
+请实际修改/生成文件，并把最终文件写入 output/ 目录（或工作区根目录）。不要只描述，必须产出真实文件。`,
+      maxAttempts,
+      timestamp: Date.now()
+    };
+    await (await import("node:fs")).promises.writeFile(
+      path.join(attemptsDir, `attempt-${attempt}.json`),
+      JSON.stringify(record, null, 2)
     );
+    await input.emit("progress", { detail: `第 ${attempt} 次执行未满足交付契约（${verdict.reason}），正在自动修复…` });
+
+    outcome = await runOnce(record.repairInstruction, attempt);
     collected = await collectOutputs();
+    verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract);
+  }
+
+  if (verdict.status !== "completed") {
+    throw new Error(`TASK_CONTRACT_RETRYABLE：${verdict.reason}（已尝试 ${maxAttempts} 次）`);
   }
 
   if (outcome.status !== "done" || !outcome.result.ok) {

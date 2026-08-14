@@ -48,7 +48,7 @@ export class WorkspaceManager {
 
   /** 创建 workspace 目录结构并写入元数据。 */
   createWorkspace(): this {
-    for (const dir of [this.dirs.input, this.dirs.vision, this.dirs.working, this.dirs.output, this.dirs.artifacts, this.dirs.task, this.dirs.logs, this.dirs.internal]) {
+    for (const dir of [this.dirs.input, this.dirs.vision, this.dirs.working, this.dirs.output, this.dirs.artifacts, this.dirs.task, this.dirs.logs, this.dirs.agent, this.dirs.verification, this.dirs.internal]) {
       fs.mkdirSync(dir, { recursive: true });
     }
     const meta: WorkspaceMeta = {
