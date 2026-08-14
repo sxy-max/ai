@@ -123,8 +123,8 @@ async function runResearch(ctx: StepContext): Promise<StepResult> {
 // ============ Artifact Worker ============
 
 const KIND_HINTS: Array<[ArtifactKind, string[]]> = [
-  ["xlsx", ["xlsx", "excel", "表格", "电子表格", "数据表"]],
   ["csv", ["csv"]],
+  ["xlsx", ["xlsx", "excel", "电子表格", "数据表"]],
   ["pptx", ["pptx", "ppt", "演示", "slides", "幻灯片"]],
   ["docx", ["docx", "word"]],
   ["html", ["html", "网页", "页面", "网站", "dashboard"]],
@@ -136,6 +136,8 @@ export function artifactKindFromGoal(goal: string): ArtifactKind {
   for (const [kind, hints] of KIND_HINTS) {
     if (hints.some((hint) => lower.includes(hint))) return kind;
   }
+  // 宽泛兜底：无更具体类型但明确要表格 → xlsx
+  if (lower.includes("表格")) return "xlsx";
   return "markdown";
 }
 
