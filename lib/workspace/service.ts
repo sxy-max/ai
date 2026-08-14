@@ -215,8 +215,9 @@ export class WorkspaceManager {
     return process.env.WORKSPACES_ROOT || "/data/workspaces";
   }
 
-  /** 清理 WORKSPACES_ROOT 下超过 ttlMs 未活动的 workspace。只删除带合法 workspace.json 的目录，返回清理数量。 */
-  static cleanupExpired(root: string, ttlMs: number, now = Date.now()): number {
+  /** 清理 WORKSPACES_ROOT 下超过 ttlMs 未活动的 workspace（WP17）。
+   *  只删除带合法 workspace.json 的目录；exclude 集合（执行中任务）跳过。返回清理数量。 */
+  static cleanupExpired(root: string, ttlMs: number, now = Date.now(), exclude: Set<string> = new Set()): number {
     const base = path.resolve(root);
     if (!fs.existsSync(base)) return 0;
     let removed = 0;
@@ -226,6 +227,7 @@ export class WorkspaceManager {
       for (const job of fs.readdirSync(convPath, { withFileTypes: true })) {
         if (!job.isDirectory()) continue;
         const wsPath = path.join(convPath, job.name);
+        if (exclude.has(job.name)) continue; // 执行中的任务 workspace 不清理
         const meta = readMeta(wsPath);
         if (!meta || typeof meta.createdAt !== "number") continue;
         if (now - meta.createdAt > ttlMs) {

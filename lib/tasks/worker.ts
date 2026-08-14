@@ -54,7 +54,19 @@ export async function runTaskWorkerLoop(options: WorkerOptions = {}): Promise<vo
       if (Date.now() - lastWorkspaceCleanup > WORKSPACE_CLEANUP_INTERVAL_MS) {
         lastWorkspaceCleanup = Date.now();
         try {
-          const removed = WorkspaceManager.cleanupExpired(WORKSPACES_ROOT, WORKSPACE_TTL_MS);
+          // WP17：执行中的任务 workspace 排除；failed 任务短 TTL（3 天），其余 7 天
+          const active = await query<{ id: string }>(
+            "SELECT id FROM tasks WHERE status IN ('queued','planning','running','preparing_workspace','validating','retrying','waiting_user','paused')"
+          );
+          const activeIds = new Set(active.rows.map((r) => r.id));
+          const failedShort = await query<{ id: string }>(
+            "SELECT id FROM tasks WHERE status = 'failed' AND completed_at < now() - interval '3 days'"
+          );
+          const shortTtlIds = new Set(failedShort.rows.map((r) => r.id));
+          let removed = WorkspaceManager.cleanupExpired(WORKSPACES_ROOT, WORKSPACE_TTL_MS, Date.now(), activeIds);
+          if (shortTtlIds.size > 0) {
+            removed += WorkspaceManager.cleanupExpired(WORKSPACES_ROOT, 3 * 24 * 60 * 60 * 1000, Date.now(), activeIds);
+          }
           if (removed > 0) console.log(`[task-worker] 清理 ${removed} 个过期 workspace`);
         } catch (error) {
           console.error("[task-worker] workspace 清理失败:", error instanceof Error ? error.message : error);
