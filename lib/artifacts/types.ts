@@ -7,13 +7,17 @@ export type ArtifactKind =
   | "json"
   | "txt"
   | "pptx"
+  | "xlsx"
+  | "docx"
+  | "pdf"
+  | "image"
   | "zip"
   | "code"
   | "unknown";
 
 export type ArtifactStatus = "ready" | "expired" | "failed";
 
-export type ArtifactSource = "chat" | "artifact_task" | "file_agent" | "manual_upload";
+export type ArtifactSource = "chat" | "artifact_task" | "file_agent" | "manual_upload" | "upload" | "agent";
 
 export type Artifact = {
   id: string;

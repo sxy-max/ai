@@ -1,5 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Provider } from "./opencode";
+import { findUserByEmail, findUserById, type UserRow } from "./db/users";
+import { findUserBySession } from "./db/sessions";
 
 export const SESSION_COOKIE = "go_ai_session";
 export const SESSION_TTL_SECONDS = 12 * 60 * 60;
@@ -79,19 +81,44 @@ function decodePayload<T>(token: string, purpose: string, secret?: string | Buff
   }
 }
 
-export function createSessionToken() {
+/** 多用户会话：payload 携带 uid。 */
+export function createUserSessionToken(userId: string) {
   const encoded = encodePayload({
+    uid: userId,
     iat: Math.floor(Date.now() / 1000),
     nonce: randomBytes(12).toString("base64url")
   });
   return `${encoded}.${signEncoded(encoded, "session")}`;
 }
 
-export function verifySessionToken(token: string) {
-  const payload = decodePayload<{ iat?: unknown }>(token, "session");
-  if (!payload || typeof payload.iat !== "number") return false;
+/** 兼容旧测试/调用：无 uid 的会话 token（不用于生产登录）。 */
+export function createSessionToken() {
+  return createUserSessionToken("");
+}
+
+export type SessionPayload = { uid?: string; iat?: number; nonce?: string };
+
+export function decodeSessionToken(token: string): SessionPayload | null {
+  const payload = decodePayload<SessionPayload>(token, "session");
+  if (!payload || typeof payload.iat !== "number") return null;
   const age = Math.floor(Date.now() / 1000) - payload.iat;
-  return age >= -60 && age <= SESSION_TTL_SECONDS;
+  if (age < -60 || age > SESSION_TTL_SECONDS) return null;
+  return payload;
+}
+
+export function verifySessionToken(token: string) {
+  return decodeSessionToken(token) !== null;
+}
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+};
+
+export function toAuthUser(row: UserRow): AuthUser {
+  return { id: row.id, email: row.email, displayName: row.display_name, role: row.role };
 }
 
 function cookieValue(request: Request, name: string) {
@@ -112,7 +139,28 @@ export function isAuthorized(request: Request) {
   if (!configured && process.env.NODE_ENV !== "production") return true;
   const headerPassword = request.headers.get("x-access-password");
   if (headerPassword != null && passwordMatches(headerPassword)) return true;
-  return verifySessionToken(cookieValue(request, SESSION_COOKIE));
+  const payload = decodeSessionToken(cookieValue(request, SESSION_COOKIE));
+  return payload !== null && Boolean(payload.uid);
+}
+
+/** 完整鉴权：签名 + uid + PG 会话 + 用户有效。null = 未登录。 */
+export async function currentUser(request: Request): Promise<AuthUser | null> {  if (accessConfigurationError()) return null;
+  if (process.env.E2E_MODE === "1" && process.env.NODE_ENV !== "production") {
+    // 测试模式：返回库中第一个用户（测试数据已存在）
+    const first = await findUserByEmail("owner@local");
+    if (first) return toAuthUser(first);
+    return { id: "e2e-user", email: "e2e@local", displayName: "E2E", role: "admin" };
+  }
+  const configured = configuredPassword();
+  if (!configured && process.env.NODE_ENV !== "production") return null;
+  const token = cookieValue(request, SESSION_COOKIE);
+  const payload = decodeSessionToken(token);
+  if (!payload?.uid) return null;
+  const bound = await findUserBySession(token);
+  if (!bound || bound.id !== payload.uid) return null;
+  const row = await findUserById(bound.id);
+  if (!row) return null;
+  return toAuthUser(row);
 }
 
 export function signModelAccess(provider: Provider, model: string) {
@@ -137,4 +185,22 @@ function modelPolicyPurpose() {
     process.env.FEATURED_MODELS || "",
     process.env.ANTHROPIC_FEATURED_MODELS || ""
   ].join("\0");
+}
+
+/** 写入 HttpOnly 会话 cookie（登录/注册成功后调用）。 */
+export function attachSessionCookie(response: import("next/server").NextResponse, token: string, request: Request) {
+  response.cookies.set({
+    name: SESSION_COOKIE,
+    value: token,
+    httpOnly: true,
+    secure: new URL(request.url).protocol === "https:",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_TTL_SECONDS
+  });
+}
+
+/** 会话 cookie 值（未登录返回空串）。 */
+export function sessionToken(request: Request) {
+  return cookieValue(request, SESSION_COOKIE);
 }

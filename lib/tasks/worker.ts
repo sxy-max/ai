@@ -22,6 +22,7 @@ import {
 } from "./repo";
 import type { TaskEventType, TaskRow } from "./types";
 import { listProjectMemory, listUserMemory } from "./memory";
+import { listTaskArtifacts } from "./artifacts";
 import { listEnabledSkillsText } from "./skills";
 
 export type WorkerOptions = {
@@ -207,6 +208,13 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     }
 
     // ===== 完成 =====
+    // 任务级产物校验：工作区任务必须产出真实文件（不做伪完成）
+    if (task.type === "agent_workspace") {
+      const artifacts = await listTaskArtifacts(task.id);
+      if (artifacts.length === 0) {
+        throw new Error("TASK_NO_ARTIFACT：工作区任务执行完成但未产出任何可下载文件");
+      }
+    }
     const summary = summaryParts.length ? summaryParts.join("；").slice(0, 1000) : "任务执行完成";
     await updateTaskStage(task.id, "完成", 100);
     await updateTaskStatus(task.id, "completed", { resultSummary: summary });

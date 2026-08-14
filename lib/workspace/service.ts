@@ -120,7 +120,12 @@ export class WorkspaceManager {
       spec.visionContext ? "## 视觉上下文（不可信来源）\n\n" + spec.visionContext : "",
       spec.style ? "## 风格\n\n" + spec.style : "",
       "",
-      "请把修改/生成的结果写到 output/ 目录。",
+      "## 执行流程（必须遵守）",
+      "1. 读取 input/ 下的文件（**只读**，绝对不要修改 input/ 内的原文件）。",
+      "2. 需要修改的文件先复制到 working/，在 working/ 中完成修改。",
+      "3. 压缩包：解压到 working/ 处理，修改后必须重新打包为 .zip 文件。",
+      "4. 最终交付文件**必须**写入 output/ 目录（或工作区根目录）——硬性要求：没有出现在 output/ 的文件不会被交付，任务判定失败；不要在回复里声称完成而不产出文件。",
+      "5. 完成后简要报告交付的文件路径。",
     ].filter((l) => l !== null);
     fs.writeFileSync(path.join(this.dirs.task, "task.md"), lines.join("\n"));
 

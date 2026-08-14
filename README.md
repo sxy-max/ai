@@ -43,6 +43,53 @@ ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
 
 不要使用 `NEXT_PUBLIC_` 保存任何 Key。
 
+## 任务系统（Cloud Agent Workspace）
+
+任务系统让用户描述目标 + 上传文件后，由后台 Worker 持续执行并产出文件（Excel / PPT / 文档 / 网页等），关闭页面不中断。
+
+### 本地运行
+
+```powershell
+# 1. 起 PostgreSQL 与 Redis（任务状态源 + 事件广播）
+docker run -d --name goai-pg -e POSTGRES_USER=goai -e POSTGRES_PASSWORD=goai `
+  -e POSTGRES_DB=go_ai -p 5432:5432 postgres:16-alpine
+docker run -d --name goai-redis -p 16379:6379 redis:7-alpine   # 6379 在 Windows 保留段内，用 16379
+
+# 2. 迁移建表（幂等）
+npm run db:migrate
+
+# 3. 起后台 Worker（独立进程，轮询领取任务）
+npx tsx scripts/task-worker.ts
+
+# 4. 起 Web（另开终端）
+npm run dev
+```
+
+页面：`/`（发起任务，可传文件）、`/tasks`（任务列表）、`/tasks/:id`（实时活动 / 步骤 / 产物）、`/workbench`（AgentScope 沙盒工作台）、`/login`。
+
+可选：`DEEPSEEK_API_KEY` 配置后任务规划与回答走 LLM；未配置时任务用确定性规则规划 + 生成器产出文件（闭环仍成立）。
+
+### 任务 API
+
+```text
+POST /api/tasks                创建任务（JSON 或 multipart：goal + files[]）
+GET  /api/tasks                我的任务列表（含产物/步骤计数）
+GET  /api/tasks/:id            详情（steps + artifacts + events）
+PATCH /api/tasks/:id           { action: pause | resume | cancel | retry }
+GET  /api/tasks/:id/events     SSE 事件流（cursor 续传，页面断开不丢事件）
+GET  /api/artifacts/:id        产物下载（归属校验）
+```
+
+### 全栈部署（Docker Compose）
+
+```bash
+cd deploy/agentscope
+cp .env ../../.env   # 或自行 export REDIS_PASSWORD / ACCESS_PASSWORD 等
+docker compose up -d --build
+```
+
+Compose 编排：postgres + redis + web（Next.js standalone）+ task-worker + sandbox-daemon + agent-runtime（AgentScope 2.0）。Web 与 Worker 共享 `/data` volume（产物/工作区），任务状态在 PostgreSQL，事件经 Redis 广播。
+
 ## 模型展示
 
 默认 `ALLOW_OTHER_MODELS=false`，后端只给浏览器签发推荐模型的访问令牌。要打开高级模型抽屉：

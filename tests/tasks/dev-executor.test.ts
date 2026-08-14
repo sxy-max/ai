@@ -167,19 +167,18 @@ test("dev 步骤：无产物 → 明确错误（DEV_OUTPUT_EMPTY）", async () =
     await onEvent({ type: "done", exitCode: 0 });
     return { ok: true, exitCode: 0 };
   };
-  await assert.rejects(
-    runDevStep(
-      {
-        taskId: task.rows[0].id,
-        stepId: "step-1",
-        userId,
-        goal: "测试",
-        files: [],
-        signal: new AbortController().signal,
-        emit: async () => {}
-      },
-      { adapter: runtime, workspacesRoot: WORKSPACES_ROOT }
-    ),
-    /DEV_OUTPUT_EMPTY/
+  const result = await runDevStep(
+    {
+      taskId: task.rows[0].id,
+      stepId: "step-1",
+      userId,
+      goal: "测试",
+      files: [],
+      signal: new AbortController().signal,
+      emit: async () => {}
+    },
+    { adapter: runtime, workspacesRoot: WORKSPACES_ROOT }
   );
+  // 中间步骤无产物不再失败（任务级校验在 worker 完成阶段）
+  assert.match(result.summary, /无产物交付/);
 });

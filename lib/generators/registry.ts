@@ -2,9 +2,11 @@
 
 import type { ArtifactKind } from "../artifacts/types";
 import { generateCsv } from "./csv";
+import { generateDocx } from "./docx";
 import { generateHtml } from "./html";
 import { generateMarkdown } from "./markdown";
 import { generatePptx } from "./pptx";
+import { generateXlsx } from "./xlsx";
 import { isGeneratorKind, GeneratorError, type ArtifactGenerator, type GeneratorInput, type GeneratorOutput } from "./types";
 
 const REGISTRY: Partial<Record<ArtifactKind, ArtifactGenerator>> = {
@@ -12,6 +14,8 @@ const REGISTRY: Partial<Record<ArtifactKind, ArtifactGenerator>> = {
   html: generateHtml,
   csv: generateCsv,
   markdown: generateMarkdown,
+  xlsx: generateXlsx,
+  docx: generateDocx,
 };
 
 export { isGeneratorKind } from "./types";

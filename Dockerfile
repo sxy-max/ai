@@ -12,6 +12,14 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
+# 任务 Worker 编译进 standalone（全内联自包含：standalone trace 不含 ioredis/docx 等）
+RUN npx esbuild scripts/task-worker.ts --bundle --platform=node --format=cjs \
+    --outfile=.next/standalone/scripts/task-worker.cjs
+# 数据库迁移同样编译（服务器无 node，迁移在容器内执行）
+RUN npx esbuild scripts/db-migrate.ts --bundle --platform=node --format=cjs \
+    --outfile=.next/standalone/scripts/db-migrate.cjs
+# migrate 运行时读 schema.sql（相对 __dirname），随产物复制
+RUN cp lib/db/schema.sql .next/standalone/scripts/schema.sql
 
 FROM node:24-alpine AS runner
 WORKDIR /app

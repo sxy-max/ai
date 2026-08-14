@@ -84,13 +84,16 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const ws = new WorkspaceManager(root);
   ws.createWorkspace();
 
-  // 3. 用户文件 → input/
+  // 3. 用户文件 → input/（只读原始）+ working/（agent 可编辑副本）
   let staged = 0;
   for (const file of input.files) {
     const buf = artifactService.readContent(file.id);
     if (!buf) continue;
     try {
       ws.writeInputFile(file.filename, buf);
+      const workingCopy = path.join(ws.dirs.working, file.filename);
+      await (await import("node:fs")).promises.mkdir(path.dirname(workingCopy), { recursive: true });
+      await (await import("node:fs")).promises.writeFile(workingCopy, buf);
       staged++;
     } catch {
       // 非法文件名/超限文件跳过，不阻塞
@@ -146,13 +149,27 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     (event) => emitJobEvent(input.emit, event)
   );
 
-  // 7. 兜底收集：agent 未上报但 output/ 已产出的文件
+  // 7. 兜底收集：agent 未上报但 output/ 已产出的文件（兼容根目录/working 落盘）
   let collected = 0;
   const outputs = (await adapter.collectOutputs?.(ws.root)) || [];
-  for (const output of outputs) {
+  const knownDirs = new Set(["task", "input", "vision", "working", "output", "artifacts", "logs", ".go-ai"]);
+  const candidates = [...outputs];
+  // 根目录直接落盘的文件（agent 可能忽略 output/ 约定）
+  try {
+    const fs = await import("node:fs");
+    for (const entry of fs.readdirSync(ws.root, { withFileTypes: true })) {
+      if (entry.isFile() && !knownDirs.has(entry.name) && !entry.name.endsWith(".json")) {
+        candidates.push({ relPath: entry.name, absPath: path.join(ws.root, entry.name), size: entry.isFile() ? fs.statSync(path.join(ws.root, entry.name)).size : 0, isDir: false });
+      }
+    }
+  } catch {}
+  const seen = new Set<string>();
+  for (const output of candidates) {
     if (output.isDir) continue;
     const base = path.basename(output.relPath);
     const name = base.replace(/\.[^.]+$/, "");
+    if (seen.has(name)) continue;
+    seen.add(name);
     const already = await listRegisteredNames(input.taskId);
     if (already.has(name)) continue;
     try {
@@ -178,8 +195,10 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     throw new Error(`DEV_RUN_${error}`);
   }
   const total = outcome.artifactCount + collected;
-  if (total === 0) throw new Error("DEV_OUTPUT_EMPTY：Agent 未产出可下载文件");
-
+  // 中间 dev 步骤（检查/分析）可无产物；任务级产物校验由 worker 在完成阶段执行
+  if (total === 0) {
+    return { summary: "工作区步骤执行完成（本步骤无产物交付）" };
+  }
   return { summary: `工作区执行完成，交付 ${total} 个文件（产物已注册并可下载）` };
 }
 

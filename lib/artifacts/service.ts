@@ -13,7 +13,12 @@ function safeId(id: string): string {
 
 /** Artifact Service —— 本地磁盘实现（/data/artifacts + manifest.json），统一 create/read/过期/绑定。 */
 export class ArtifactService {
-  constructor(private readonly root: string) {}
+  /** root 用 path.resolve 归一化：Windows 下 "/data/artifacts" 需解析为盘符绝对路径，否则路径穿越防护的前缀比较（正/反斜杠）会误伤读操作。 */
+  constructor(root: string) {
+    this.root = path.resolve(root);
+  }
+
+  private readonly root: string;
 
   private manifestPath(): string {
     return path.join(this.root, MANIFEST_FILE);
