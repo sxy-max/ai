@@ -240,7 +240,11 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       const context = await buildPlanContext(task);
       const executionPlan = buildExecutionPlan(task, context.files);
       const artifacts = await listTaskArtifacts(task.id);
-      const verdict = await validateTaskCompletion(task.id, artifacts, executionPlan.contract);
+      // WP12：格式验证（HTML/CSV/JSON/ZIP/PPTX/MD）——不合格进入 repair loop
+      const verdict = await validateTaskCompletion(task.id, artifacts, executionPlan.contract, async (artifactId, filename, kind) => {
+        const { validateArtifactFormat } = await import("../artifacts/validator");
+        return validateArtifactFormat(artifactId, filename, kind);
+      });
       if (verdict.status !== "completed") {
         const code = verdict.status === "retryable_failed" ? "TASK_CONTRACT_RETRYABLE" : "TASK_CONTRACT_FAILED";
         throw new Error(`${code}：${verdict.reason}`);

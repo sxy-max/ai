@@ -256,7 +256,11 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
 
   let outcome = await runOnce(input.goal, 0);
   let collected = await collectOutputs();
-  let verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract);
+  const formatValidator = async (artifactId: string, filename: string, kind: string) => {
+    const { validateArtifactFormat } = await import("../artifacts/validator");
+    return validateArtifactFormat(artifactId, filename, kind);
+  };
+  let verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract, formatValidator);
 
   for (let attempt = 1; attempt <= maxAttempts && verdict.status !== "completed"; attempt++) {
     // 记录 attempt（含失败原因与修复指令）
@@ -278,7 +282,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
 
     outcome = await runOnce(record.repairInstruction, attempt);
     collected = await collectOutputs();
-    verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract);
+    verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract, formatValidator);
   }
 
   if (verdict.status !== "completed") {
