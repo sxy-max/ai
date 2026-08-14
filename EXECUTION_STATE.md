@@ -91,3 +91,12 @@
 **关键实现**：WP1 Audit 文档；WP2 TaskExecutionPlan+chat 防线；WP3 AgentRuntimeAdapter（GoFileAgentAdapter=Claude Code+DeepSeek）；WP4 workspace 契约+TTL 清理；WP5 MiniMax vision→agent；WP6 PresentationSpec→pptxgenjs 真实 PPTX；WP7 OpenCode Go 通道复用（无需新 key）；WP8 reasoning/final 生命周期+真实 5 次复测；WP9 stage 事件→UI 阶段指示；WP10 Work UI 文案；WP11 真实 E2E 本地 7/7+服务器 6/6（T6 MD→Agent→MD、T8 图片+HTML→修改→HTML、T9 ZIP→重打包、T10 多轮 continue 8→16、T14 Docker 重启）；WP12 清理调度+安全边界。
 
 **关键踩坑（勿回退）**：file-agent 容器按 {conversationId}/{jobId} 定位 workspace → conversationId="tasks"、jobId={taskId} 必须与 WORKSPACES_ROOT/tasks/{taskId} 对齐；agent_workspace 禁 LLM 规划（拆多步=表面执行）；无产物自动重试 1 次+任务级 TASK_NO_ARTIFACT 校验；容器重建用 rm+run（restart 不换镜像）。
+
+## 2026-08-15 V1.1 Goal Mode（WP1-WP18 完成，进行 WP19/20）
+
+已完成：WP1 Runtime Audit（docs/V11_RUNTIME_AUDIT.md）→ WP2 AgentCompletionContract（系统判定完成）→ WP3 纠错循环（attempts 落盘）→ WP4 Workspace 2.0（agent/verification/logs）→ WP5 SandboxRuntimeAdapter → WP6 AgentScopeRuntimeAdapter（prototype 代码）→ WP7 Tool Registry（9 工具+安全边界）→ WP8 Vision 字段扩展（colors/objects/relationships）→ WP9 FilePreprocessor → WP10 持久化多步 plan（phase 列）→ WP11 Task Recovery（preparing_workspace/validating/retrying）→ WP12 ArtifactValidator（HTML/CSV/JSON/ZIP/PPTX/MD）→ WP13 V11 测试矩阵 → WP14 reasoning stop=length 重试 → WP15 UI 状态徽章 → WP16 安全回归（隔离/symlink/限额）→ WP17 状态感知清理（active 排除/failed 3d）→ WP18 ObjectStorageAdapter（LocalObjectStorage）。
+
+**V11 服务器 E2E：6/7**（T1 MD 结构化、T3 图片+HTML、T4 ZIP 多文件、T12 PPTX、T10 二轮修改 11→22、T14 Docker 重启 PASS；T2 CSV 判据修正后重跑中）。
+**本地 E2E：7/7；unit/integration：257/257。**
+
+关键坑：task_steps.phase 列需服务器 ALTER（本地验证后服务器库缺列——部署时迁移幂等未覆盖新列，需手工 ALTER）；测试的 ArtifactService 需显式传 LocalObjectStorage（全局单例与测试隔离）。
