@@ -111,14 +111,17 @@ export type StructuredVisualDescription = {
   visible_text?: string;
   layout?: string;
   ui_elements?: string;
+  colors?: string;
+  objects?: string;
+  relationships?: string;
   important_details?: string;
   uncertainty?: string;
   /** 无法解析出任何字段时的原文兜底。 */
   raw?: string;
 };
 
-const VISION_FIELD_KEYS = ["summary", "visible_text", "layout", "ui_elements", "important_details", "uncertainty"] as const;
-const VISION_FIELD_LINE = /^\s*(?:[-\d.]+\s*)?(summary|visible_text|layout|ui_elements|important_details|uncertainty)\s*[：:]\s*(.*)$/i;
+const VISION_FIELD_KEYS = ["summary", "visible_text", "layout", "ui_elements", "colors", "objects", "relationships", "important_details", "uncertainty"] as const;
+const VISION_FIELD_LINE = /^\s*(?:[-\d.]+\s*)?(summary|visible_text|layout|ui_elements|colors|objects|relationships|important_details|uncertainty)\s*[：:]\s*(.*)$/i;
 
 /**
  * 尽力从 MiniMax 结构化文本中解析字段（VISION_SYSTEM 要求的 six 字段）。
