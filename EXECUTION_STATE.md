@@ -83,3 +83,11 @@
 - ~~E2E "Target crashed"~~ 根因已修复：Next16 dev 跨源保护（allowedDevOrigins 未含 127.0.0.1 → 浏览器 Origin 头的 chunk/HMR 请求 403，app 不 hydrate；curl 无 Origin 故正常）。已加 allowedDevOrigins + globalSetup 预热
 - KaTeX 复杂公式视觉细节（V_eff'' 类）
 - 历史 schema 迁移完整性
+
+## 2026-08-14~15 Goal Mode：Agent-First 执行主链（WP1-WP12 完成，13 commits）
+
+**执行链（当前线上）**：user → classifyTask（前端+服务端 422 防线）→ /api/tasks → worker → TaskExecutionPlan → planner（agent_workspace 确定性单 dev 步；artifact LLM/规则）→ executor → [general/artifact: LLM 内容+生成器；dev: Claude Code Runtime] → PG artifacts（版本化）→ SSE/通知 → 任务页 Work UI
+
+**关键实现**：WP1 Audit 文档；WP2 TaskExecutionPlan+chat 防线；WP3 AgentRuntimeAdapter（GoFileAgentAdapter=Claude Code+DeepSeek）；WP4 workspace 契约+TTL 清理；WP5 MiniMax vision→agent；WP6 PresentationSpec→pptxgenjs 真实 PPTX；WP7 OpenCode Go 通道复用（无需新 key）；WP8 reasoning/final 生命周期+真实 5 次复测；WP9 stage 事件→UI 阶段指示；WP10 Work UI 文案；WP11 真实 E2E 本地 7/7+服务器 6/6（T6 MD→Agent→MD、T8 图片+HTML→修改→HTML、T9 ZIP→重打包、T10 多轮 continue 8→16、T14 Docker 重启）；WP12 清理调度+安全边界。
+
+**关键踩坑（勿回退）**：file-agent 容器按 {conversationId}/{jobId} 定位 workspace → conversationId="tasks"、jobId={taskId} 必须与 WORKSPACES_ROOT/tasks/{taskId} 对齐；agent_workspace 禁 LLM 规划（拆多步=表面执行）；无产物自动重试 1 次+任务级 TASK_NO_ARTIFACT 校验；容器重建用 rm+run（restart 不换镜像）。
