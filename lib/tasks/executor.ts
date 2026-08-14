@@ -55,8 +55,8 @@ ${ctx.userMemory ? `用户偏好：${ctx.userMemory}\n` : ""}${ctx.skills ? `技
 
   // 无模型可用：确定性兜底（不假装回答）
   const fallback = fileContext
-    ? `已读取 ${ctx.files.length} 个文件（${ctx.files.map((f) => f.filename).join("、")}）。当前实例未配置规划/回答模型，无法生成深度分析内容；请配置 DEEPSEEK_API_KEY 后重试。`
-    : "当前实例未配置回答模型（DEEPSEEK_API_KEY），本步骤需要模型完成。请配置后重试。";
+    ? `已读取 ${ctx.files.length} 个文件（${ctx.files.map((f) => f.filename).join("、")}）。当前实例未配置规划/回答模型（OPENCODE_GO_API_KEY / DEEPSEEK_API_KEY），无法生成深度分析内容；配置后重试。`
+    : "当前实例未配置回答模型（OPENCODE_GO_API_KEY / DEEPSEEK_API_KEY），本步骤需要模型完成。请配置后重试。";
   await ctx.emit("tool.completed", { name: "general", ok: false, output: fallback });
   return { summary: fallback };
 }
