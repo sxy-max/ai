@@ -50,10 +50,10 @@ test("symlink 逃逸：workspace 内符号链接指向外部 → 读取被拒", 
 
 test("限额：超大文件/文件数超限被拒", () => {
   const ws = new WorkspaceManager(path.join(ROOT, "tasks", "task-limits")).createWorkspace();
-  assert.throws(() => ws.writeInputFile("big.txt", Buffer.alloc(ws.limits.maxFileSize + 1)), /file_too_large/);
+  assert.throws(() => ws.writeInputFile("big.txt", Buffer.alloc(ws.limits.maxFileSize + 1)), /maxFileSize/);
   const small = Buffer.from("x");
   for (let i = 0; i < ws.limits.maxFiles; i++) ws.writeInputFile(`f${i}.txt`, small);
-  assert.throws(() => ws.writeInputFile("over.txt", small), /too_many_files/);
+  assert.throws(() => ws.writeInputFile("over.txt", small), /maxFiles/);
 });
 
 test("Agent timeout：exec 透传 timeoutMs 给 adapter（超时由 adapter 执行）", async () => {
