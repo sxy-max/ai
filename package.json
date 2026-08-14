@@ -10,8 +10,9 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit --incremental false",
+    "db:migrate": "tsx scripts/db-migrate.ts",
     "test": "npm run test:core && npm run test:integration",
-    "test:core": "tsx --test tests/**/*.test.ts",
+    "test:core": "tsx --test --test-concurrency=1 --test-timeout=60000 tests/**/*.test.ts",
     "test:integration": "npm run build && node tests/integration.mjs",
     "test:message": "tsx --test tests/message-lifecycle.test.ts tests/transform.test.ts",
     "test:unit": "tsx --test tests/message-lifecycle.test.ts tests/transform.test.ts",
@@ -19,17 +20,23 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "@types/pg": "^8.21.0",
+    "docx": "^9.7.1",
+    "ioredis": "^6.0.0",
     "jszip": "^3.10.1",
     "katex": "^0.18.4",
     "next": "16.3.0",
     "pdfjs-dist": "5.4.54",
+    "pg": "^8.23.0",
+    "pptxgenjs": "^4.0.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "rehype-highlight": "^7.0.2",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "4.0.1",
-    "remark-math": "^6.0.0"
+    "remark-math": "^6.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

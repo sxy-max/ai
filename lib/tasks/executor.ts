@@ -9,6 +9,8 @@ import { completeChat } from "../llm/complete";
 import { searchWeb, buildEvidenceContext, type WebSource } from "../exa";
 import { generateArtifact, isGeneratorKind } from "../generators/registry";
 import { llmArtifactContent } from "../generators/llm";
+import { specFromLlm, specFromText } from "../generators/presentationSpec";
+import { renderPptxFromSpec } from "../generators/pptxRenderer";
 import { registerTaskArtifact, listTaskArtifacts } from "./artifacts";
 import { emitTaskEvent } from "./repo";
 import type { StepContext } from "./context";
@@ -159,6 +161,24 @@ async function runArtifact(ctx: StepContext): Promise<StepResult> {
   }
   if (llmContent) {
     await ctx.emit("tool.completed", { name: "llm_content", ok: true, output: `生成 ${llmContent.length} 字符内容` });
+  }
+
+  // WP6：PPTX 走结构化 spec 管线（LLM spec → pptxgenjs 渲染；内容与渲染分离）
+  if (kind === "pptx") {
+    const spec = (await specFromLlm(ctx.step.goal, fileContext)) || specFromText(llmContent || prompt);
+    const content = await renderPptxFromSpec(spec);
+    const artifact = await registerTaskArtifact({
+      taskId: ctx.task.id,
+      userId: ctx.userId,
+      projectId: ctx.projectId,
+      filename: `${spec.title.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "演示文稿"}.pptx`,
+      name: spec.title.slice(0, 60),
+      kind: "pptx",
+      mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      content
+    });
+    await ctx.emit("tool.completed", { name: "generate", ok: true, output: `演示文稿 ${spec.slides.length} 页 (${content.length} bytes)` });
+    return { summary: `生成演示文稿《${spec.title}》（${spec.slides.length} 页，${content.length} bytes）` };
   }
 
   const output = await generateArtifact(kind, { message: llmContent || prompt });
