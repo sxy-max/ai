@@ -62,11 +62,11 @@ function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { 
     if (recorder) {
       try {
         await (await import("node:fs")).promises.appendFile(recorder.ndjson, JSON.stringify({ ts: Date.now(), ...event }) + "\n");
-        if (event.type === "text") {
-          await (await import("node:fs")).promises.appendFile(recorder.stdout, String(event.text) + "\n");
-        }
         if (event.type === "result") {
           await (await import("node:fs")).promises.appendFile(recorder.stdout, String(event.summary) + "\n");
+        }
+        if (event.type === "progress" && event.detail) {
+          await (await import("node:fs")).promises.appendFile(recorder.stdout, String(event.detail) + "\n");
         }
         if (event.type === "error") {
           await (await import("node:fs")).promises.appendFile(recorder.stderr, String(event.message) + "\n");
