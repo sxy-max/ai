@@ -115,79 +115,104 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     fileManifest: true,
   });
 
-  // 6. 执行（事件映射 task_events）
+  // 6. 执行（事件映射 task_events）；无产物时自动重试一次（强化交付指令）
   const jobId = `task-${input.taskId}`;
   const store = new JobStore();
   await input.emit("agent.started", { worker: "dev", title: "Claude Code 沙盒执行中" });
 
-  const outcome: JobRunOutcome = await runAgentJob(
-    {
-      conversationId: jobId,
-      jobId,
-      prompt: input.goal,
-      maxTurns: 15,
-      visionMd: vision.visionMd,
-      fileManifest: true,
-      workspace: ws,
-      adapter,
-      store,
-      registerArtifact: async (name: string, content: Buffer) => {
-        const kind = kindFromFilename(name);
-        const artifact = await registerTaskArtifact({
+  const runOnce = async (prompt: string, attempt: number): Promise<JobRunOutcome> => {
+    ws.writeTaskSpec({ title: prompt.slice(0, 60), prompt, visionMd: vision.visionMd, fileManifest: true });
+    const outcome = await runAgentJob(
+      {
+        conversationId: jobId,
+        jobId,
+        prompt,
+        maxTurns: 15,
+        visionMd: vision.visionMd,
+        fileManifest: true,
+        workspace: ws,
+        adapter,
+        store,
+        registerArtifact: async (name: string, content: Buffer) => {
+          const kind = kindFromFilename(name);
+          const artifact = await registerTaskArtifact({
+            taskId: input.taskId,
+            userId: input.userId,
+            projectId: input.projectId ?? null,
+            filename: path.basename(name),
+            name: path.basename(name).replace(/\.[^.]+$/, ""),
+            kind,
+            mime: mimeFromKind(kind),
+            content
+          });
+          return { id: artifact.id, kind: artifact.type as ArtifactKind, name: artifact.name, mime: artifact.mime, size: artifact.size, status: artifact.status as "ready", downloadUrl: `/api/artifacts/${artifact.id}` };
+        }
+      },
+      (event) => emitJobEvent(input.emit, event)
+    );
+    if (attempt === 0 && (outcome.status !== "done" || !outcome.result.ok)) {
+      // 第一次执行失败 → 不自动重试（错误原因明确，留给用户重试）
+      return outcome;
+    }
+    return outcome;
+  };
+
+  // 7. 兜底收集：agent 未上报但 output/ 已产出的文件（兼容根目录/working 落盘）
+  const collectOutputs = async (): Promise<number> => {
+    let collected = 0;
+    const outputs = (await adapter.collectOutputs?.(ws.root)) || [];
+    const knownDirs = new Set(["task", "input", "vision", "working", "output", "artifacts", "logs", ".go-ai"]);
+    const candidates = [...outputs];
+    // 根目录直接落盘的文件（agent 可能忽略 output/ 约定）
+    try {
+      const fs = await import("node:fs");
+      for (const entry of fs.readdirSync(ws.root, { withFileTypes: true })) {
+        if (entry.isFile() && !knownDirs.has(entry.name) && !entry.name.endsWith(".json")) {
+          candidates.push({ relPath: entry.name, absPath: path.join(ws.root, entry.name), size: entry.isFile() ? fs.statSync(path.join(ws.root, entry.name)).size : 0, isDir: false });
+        }
+      }
+    } catch {}
+    const seen = new Set<string>();
+    for (const output of candidates) {
+      if (output.isDir) continue;
+      const base = path.basename(output.relPath);
+      const name = base.replace(/\.[^.]+$/, "");
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const already = await listRegisteredNames(input.taskId);
+      if (already.has(name)) continue;
+      try {
+        const buf = artifactService.readContent(output.absPath) ?? (await import("node:fs")).readFileSync(output.absPath);
+        const kind = kindFromFilename(output.relPath);
+        await registerTaskArtifact({
           taskId: input.taskId,
           userId: input.userId,
           projectId: input.projectId ?? null,
-          filename: path.basename(name),
-          name: path.basename(name).replace(/\.[^.]+$/, ""),
+          filename: base,
+          name,
           kind,
           mime: mimeFromKind(kind),
-          content
+          content: buf
         });
-        return { id: artifact.id, kind: artifact.type as ArtifactKind, name: artifact.name, mime: artifact.mime, size: artifact.size, status: artifact.status as "ready", downloadUrl: `/api/artifacts/${artifact.id}` };
-      }
-    },
-    (event) => emitJobEvent(input.emit, event)
-  );
-
-  // 7. 兜底收集：agent 未上报但 output/ 已产出的文件（兼容根目录/working 落盘）
-  let collected = 0;
-  const outputs = (await adapter.collectOutputs?.(ws.root)) || [];
-  const knownDirs = new Set(["task", "input", "vision", "working", "output", "artifacts", "logs", ".go-ai"]);
-  const candidates = [...outputs];
-  // 根目录直接落盘的文件（agent 可能忽略 output/ 约定）
-  try {
-    const fs = await import("node:fs");
-    for (const entry of fs.readdirSync(ws.root, { withFileTypes: true })) {
-      if (entry.isFile() && !knownDirs.has(entry.name) && !entry.name.endsWith(".json")) {
-        candidates.push({ relPath: entry.name, absPath: path.join(ws.root, entry.name), size: entry.isFile() ? fs.statSync(path.join(ws.root, entry.name)).size : 0, isDir: false });
-      }
+        collected++;
+        await input.emit("artifact.created", { name: base, downloadUrl: `/api/artifacts/${await latestArtifactId(input.taskId, name)}` });
+      } catch {}
     }
-  } catch {}
-  const seen = new Set<string>();
-  for (const output of candidates) {
-    if (output.isDir) continue;
-    const base = path.basename(output.relPath);
-    const name = base.replace(/\.[^.]+$/, "");
-    if (seen.has(name)) continue;
-    seen.add(name);
-    const already = await listRegisteredNames(input.taskId);
-    if (already.has(name)) continue;
-    try {
-      const buf = artifactService.readContent(output.absPath) ?? (await import("node:fs")).readFileSync(output.absPath);
-      const kind = kindFromFilename(output.relPath);
-      await registerTaskArtifact({
-        taskId: input.taskId,
-        userId: input.userId,
-        projectId: input.projectId ?? null,
-        filename: base,
-        name,
-        kind,
-        mime: mimeFromKind(kind),
-        content: buf
-      });
-      collected++;
-      await input.emit("artifact.created", { name: base, downloadUrl: `/api/artifacts/${await latestArtifactId(input.taskId, name)}` });
-    } catch {}
+    return collected;
+  };
+
+  let outcome = await runOnce(input.goal, 0);
+  let collected = await collectOutputs();
+  // 无产物 → 自动重试一次（强化交付指令），提升真实交付率
+  if (outcome.status === "done" && outcome.result.ok && outcome.artifactCount + collected === 0) {
+    await input.emit("progress", { detail: "Agent 未产出文件，正在重试（强化交付指令）" });
+    outcome = await runOnce(
+      `${input.goal}
+
+重要：你上一次没有产出任何文件。请实际修改/生成文件，并把最终文件写入 output/ 目录（或工作区根目录）。不要只描述，必须产出真实文件。`,
+      1
+    );
+    collected = await collectOutputs();
   }
 
   if (outcome.status !== "done" || !outcome.result.ok) {

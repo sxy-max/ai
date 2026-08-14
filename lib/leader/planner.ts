@@ -30,6 +30,9 @@ const PLANNER_SYSTEM_PROMPT = `你是云端 AI 工作系统的任务规划者（
 
 /** 生成 Plan；LLM 失败或未配置时回退到规则规划。 */
 export async function generatePlan(task: TaskRow, context: PlanContext): Promise<PlanStep[]> {
+  // agent_workspace 类型：强制确定性单 dev 步骤（一次容器执行完成全部工作，
+  // 避免 LLM 拆出多个独立 dev 步骤导致每步只做表面操作、无产物交付）
+  if (task.type === "agent_workspace") return planFromRules(task, context);
   const llmPlan = await planWithLlm(task, context);
   if (llmPlan?.length) return llmPlan;
   return planFromRules(task, context);
