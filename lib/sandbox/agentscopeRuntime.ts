@@ -111,7 +111,7 @@ export class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
             await onEvent({ type: "error", message: String(event.message || "agent error") });
             return { ok: false, error: String(event.message || "AGENTSCOPE_ERROR") };
         }
-        if (event.kind === "candidate_complete" || event.kind === "error") break;
+        if (event.kind === "candidate_complete") break;
         if (request.signal?.aborted) throw new Error("TASK_ABORTED");
       }
       if (!sawComplete) return { ok: false, error: "AGENTSCOPE_STREAM_ENDED_PREMATURELY" };
