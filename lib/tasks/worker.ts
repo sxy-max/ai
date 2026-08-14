@@ -26,6 +26,7 @@ import {
 import type { TaskEventType, TaskRow } from "./types";
 import { listProjectMemory, listUserMemory } from "./memory";
 import { listTaskArtifacts } from "./artifacts";
+import { validateTaskCompletion } from "./completion";
 import { listEnabledSkillsText } from "./skills";
 
 export type WorkerOptions = {
@@ -224,11 +225,20 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     }
 
     // ===== 完成 =====
-    // 任务级产物校验：工作区任务必须产出真实文件（不做伪完成）
-    if (task.type === "agent_workspace") {
+    // 任务级完成契约（WP2）：系统判定，Agent 声称完成不生效。
+    // 仅对含产物意图的任务（plan 有 artifact/dev 步骤）严格校验；纯文本任务（general 步骤）豁免。
+    const hasArtifactIntent = steps.some((s) => s.worker_type === "artifact" || s.worker_type === "dev");
+    if (hasArtifactIntent) {
+      const context = await buildPlanContext(task);
+      const executionPlan = buildExecutionPlan(task, context.files);
       const artifacts = await listTaskArtifacts(task.id);
-      if (artifacts.length === 0) {
-        throw new Error("TASK_NO_ARTIFACT：工作区任务执行完成但未产出任何可下载文件");
+      const verdict = await validateTaskCompletion(task.id, artifacts, executionPlan.contract);
+      if (verdict.status !== "completed") {
+        const code = verdict.status === "retryable_failed" ? "TASK_CONTRACT_RETRYABLE" : "TASK_CONTRACT_FAILED";
+        throw new Error(`${code}：${verdict.reason}`);
+      }
+      if (verdict.results.some((r) => !r.ok)) {
+        throw new Error(`TASK_OUTPUT_VALIDATION_FAILED：${verdict.results.filter((r) => !r.ok).map((r) => `${r.filename}: ${r.error || "格式验证失败"}`).join("；")}`);
       }
     }
     const summary = summaryParts.length ? summaryParts.join("；").slice(0, 1000) : "任务执行完成";

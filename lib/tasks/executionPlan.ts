@@ -5,6 +5,8 @@
  */
 
 import type { TaskRow } from "./types";
+import type { TaskCompletionContract } from "./completion";
+import { artifactKindFromGoal } from "./executor";
 
 export type ExecutionType =
   | "chat"
@@ -31,6 +33,8 @@ export type TaskExecutionPlan = {
   expectedArtifacts: string[];
   timeout: number;
   capabilities: string[];
+  /** 完成契约（WP2）：系统级判定依据，Agent 声称完成不生效。 */
+  contract: TaskCompletionContract;
 };
 
 const DEFAULT_TIMEOUT = 15 * 60 * 1000;
@@ -44,7 +48,8 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
   const hasZip = fileNames.some((n) => n.endsWith(".zip"));
 
   if (task.type === "artifact") {
-    const kind = detectArtifactKind(goal);
+    // 与 executor 实际产出对齐（统一判定，避免 plan 说 csv、执行产出 xlsx 的契约错位）
+    const kind = artifactKindFromGoal(task.goal);
     return {
       taskType: "artifact_generation",
       executor: "artifact",
@@ -54,7 +59,12 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
       needsFiles: hasFiles,
       expectedArtifacts: kind ? [kind] : [],
       timeout: DEFAULT_TIMEOUT,
-      capabilities: ["generator", "llm-content"]
+      capabilities: ["generator", "llm-content"],
+      contract: {
+        expectations: kind ? [{ kind, minCount: 1, validate: "format" }] : [],
+        minArtifacts: 1,
+        validationPolicy: "strict"
+      }
     };
   }
 
@@ -68,7 +78,12 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
       needsFiles: true,
       expectedArtifacts: ["file"],
       timeout: DEFAULT_TIMEOUT,
-      capabilities: ["agent", "workspace", "claude-code"]
+      capabilities: ["agent", "workspace", "claude-code"],
+      contract: {
+        expectations: [] as Array<{ kind?: string; filenamePattern?: string; minCount?: number; mustBeNonEmpty?: boolean; validate?: "format" | "none" }>,
+        minArtifacts: 1,
+        validationPolicy: "strict" as const
+      }
     };
     if (hasImages) {
       return {
@@ -86,9 +101,15 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
         capabilities: [...base.capabilities, "zip", "multi-file"]
       };
     }
+    const type = hasFiles ? "file_transform" : "workspace_agent";
     return {
       ...base,
-      taskType: hasFiles ? "file_transform" : "workspace_agent"
+      taskType: type,
+      contract: {
+        ...base.contract,
+        // 工作区任务必须至少交付一个非空文件（类型不限；ZIP 任务同样适用）
+        expectations: [{ kind: undefined, filenamePattern: "*", minCount: 1, validate: "format" }]
+      }
     };
   }
 
@@ -102,19 +123,8 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
     needsFiles: hasFiles,
     expectedArtifacts: [],
     timeout: 5 * 60 * 1000,
-    capabilities: ["chat"]
+    capabilities: ["chat"],
+    contract: { expectations: [], minArtifacts: 0, validationPolicy: "strict" }
   };
 }
 
-function detectArtifactKind(goal: string): string | null {
-  const t = goal.toLowerCase();
-  if (/ppt|幻灯片/.test(t)) return "pptx";
-  if (/html|网页|index/.test(t)) return "html";
-  if (/csv|表格/.test(t)) return "csv";
-  if (/markdown|\bmd\b/.test(t)) return "markdown";
-  if (/\bjson\b/.test(t)) return "json";
-  if (/txt|text/.test(t)) return "txt";
-  if (/docx|word/.test(t)) return "docx";
-  if (/xlsx|excel/.test(t)) return "xlsx";
-  return null;
-}
