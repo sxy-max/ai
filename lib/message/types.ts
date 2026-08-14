@@ -6,7 +6,23 @@ export type MessagePart =
   | { type: "attachment"; attachmentId: string; name: string; kind: "text" | "image" }
   | { type: "tool_status"; name: string; status: string };
 
-export type MessageStatus = "streaming" | "complete" | "incomplete" | "failed";
+/**
+ * 消息终态机（WP8）：
+ *   streaming_reasoning / streaming_final — 流式中间态（区分思考与回答阶段）
+ *   completed — 唯一「已完成」：存在有效 final 文本或有效 Artifact
+ *   incomplete — 有 reasoning 但无 final 且无 artifact（可重试，不进下一轮上下文）
+ *   failed — 完全失败
+ */
+export type MessageStatus = "streaming_reasoning" | "streaming_final" | "completed" | "incomplete" | "failed";
+
+/** 兼容旧存储值：streaming→streaming_reasoning，complete→completed。 */
+export function normalizeMessageStatus(raw: unknown): MessageStatus {
+  if (raw === "streaming" || raw === "streaming_reasoning") return "streaming_reasoning";
+  if (raw === "streaming_final") return "streaming_final";
+  if (raw === "complete" || raw === "completed") return "completed";
+  if (raw === "incomplete") return "incomplete";
+  return "failed";
+}
 
 export type Message = {
   id: string;
@@ -51,7 +67,7 @@ export function createMessage(
   id: string,
   role: "user" | "assistant",
   parts: MessagePart[],
-  status: MessageStatus = "complete",
+  status: MessageStatus = "completed",
 ): Message {
   return { id, role, status, parts, createdAt: Date.now() };
 }

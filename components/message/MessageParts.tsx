@@ -67,6 +67,11 @@ export default function MessageParts({ message, busy }: { message: MessageLike; 
   };
   return (
     <div className={isUser ? "msg-parts user" : "msg-parts assistant"}>
+      {(message.status === "incomplete" || message.status === "failed") && (
+        <div className={`msg-status ${message.status}`}>
+          {message.status === "incomplete" ? "模型完成了推理，但未返回最终答案，可重试。" : "回答失败，请重试。"}
+        </div>
+      )}
       {message.reasoning ? (
         <details className="reasoning">
           <summary>思考过程 <span>已完成</span></summary>

@@ -21,20 +21,26 @@ export function accumulate(acc: StreamAccumulator, event: { type: string; value?
   }
 }
 
-/** 流结束: 根据累积结果判定 message status */
+/** 流结束: 根据累积结果判定 message status（WP8） */
 export function finalizeStatus(acc: StreamAccumulator, hasArtifacts: boolean): MessageStatus {
-  if (acc.text.trim().length === 0 && !hasArtifacts) {
+  const hasFinal = acc.text.trim().length > 0;
+  if (!hasFinal && !hasArtifacts) {
     // reasoning-only 或空 → incomplete(有 reasoning) / failed(完全空)
     return acc.reasoning.trim().length > 0 ? "incomplete" : "failed";
   }
-  return "complete";
+  return "completed";
+}
+
+/** 流式中间态：按事件类型切换（reasoning → streaming_reasoning，text → streaming_final）。 */
+export function streamingStatus(acc: StreamAccumulator): MessageStatus {
+  return acc.text.trim().length > 0 ? "streaming_final" : "streaming_reasoning";
 }
 
 /** 从累积器构建 assistant parts(text + reasoning 分离) */
 export function partsFromAccumulator(acc: StreamAccumulator): MessagePart[] {
   const parts: MessagePart[] = [];
   if (acc.reasoning.trim()) {
-    parts.push({ type: "reasoning", text: acc.reasoning, status: "complete" });
+    parts.push({ type: "reasoning", text: acc.reasoning, status: "complete" as const });
   }
   if (acc.text) {
     parts.push({ type: "text", text: acc.text });
