@@ -30,6 +30,7 @@ import { listProjectMemory, listUserMemory } from "./memory";
 import { listTaskArtifacts } from "./artifacts";
 import { validateTaskCompletion } from "./completion";
 import { listEnabledSkillsText } from "./skills";
+import { recordTaskMetrics } from "./metrics";
 
 export type WorkerOptions = {
   pollMs?: number;
@@ -141,6 +142,13 @@ async function claimNextTask(): Promise<string | null> {
 export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise<void> {
   const task = await getTask(taskId);
   if (!task) return;
+  // V1.2 WP20：执行指标起始时间
+  const startedAt = Date.now();
+  // V1.2 WP3：执行策略（执行阶段赋值；catch 分支也可用）
+  let policy: ExecutionPolicy = planExecutionPolicy({
+    requirements: { requiredCapabilities: [], reasoningNeeded: "auto", visionNeeded: false, workspaceNeeded: false, toolsNeeded: false, artifactKinds: [], taskType: "chat" },
+    availableRuntimes: runtimeAvailability(),
+  });
 
   console.log(`[task-worker] 处理任务 ${taskId}（${task.title}）`);
   await emitTaskEvent(task.id, "task.started", { title: task.title });
@@ -175,7 +183,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     const context = await buildPlanContext(task);
     // V1.2 WP3/WP7：生成统一执行策略（runtime/模型角色/预算/工具）；dev 步骤据此选 runtime
     const executionPlan = buildExecutionPlan(task, context.files);
-    const policy: ExecutionPolicy = planExecutionPolicy({
+    policy = planExecutionPolicy({
       requirements: requirementsFromPlan(executionPlan),
       availableRuntimes: runtimeAvailability(),
     });
@@ -288,6 +296,19 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     await emitTaskEvent(taskId, "task.completed", { summary });
     await notifyTaskFinished(await getTaskOrThrow(task.id), true, summary);
     console.log(`[task-worker]   任务完成: ${summary.slice(0, 100)}`);
+    // V1.2 WP20：执行指标
+    const artifacts = await listTaskArtifacts(task.id).catch(() => []);
+    await recordTaskMetrics({
+      taskId,
+      userId: task.user_id,
+      startedAt,
+      finishedAt: Date.now(),
+      retryCount: 0,
+      toolCalls: 0,
+      artifactCount: artifacts.length,
+      runtime: policy.runtime.runtime,
+      success: true,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[task-worker] 任务 ${taskId} 异常:`, message);
@@ -295,6 +316,21 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     await emitTaskEvent(taskId, "task.failed", { error: message }).catch(() => {});
     const current = await getTask(task.id);
     if (current) await notifyTaskFinished(current, false).catch(() => {});
+    // V1.2 WP20：失败指标（failure_code 来自 FailureTaxonomy）
+    const { classifyFailure } = await import("../policy/failureTaxonomy");
+    const classification = classifyFailure(message);
+    await recordTaskMetrics({
+      taskId,
+      userId: task.user_id,
+      startedAt,
+      finishedAt: Date.now(),
+      retryCount: 0,
+      toolCalls: 0,
+      artifactCount: 0,
+      runtime: policy.runtime.runtime,
+      success: false,
+      failureCode: classification.code,
+    });
   } finally {
     clearInterval(heartbeat);
   }

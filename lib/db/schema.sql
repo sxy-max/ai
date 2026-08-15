@@ -273,3 +273,25 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   version TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ============ V1.2：Task Execution Metrics（WP20）============
+
+CREATE TABLE IF NOT EXISTS task_metrics (
+  task_id UUID PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL,
+  queue_ms INTEGER,
+  planning_ms INTEGER,
+  runtime_ms INTEGER,
+  validation_ms INTEGER,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  tool_calls INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens INTEGER,
+  output_tokens INTEGER,
+  artifact_count INTEGER NOT NULL DEFAULT 0,
+  runtime TEXT,
+  model TEXT,
+  success BOOLEAN NOT NULL DEFAULT false,
+  failure_code TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_metrics_user ON task_metrics(user_id, created_at);
