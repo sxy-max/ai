@@ -107,3 +107,15 @@
 - 本地：unit/integration 257/257、E2E 7/7、build PASS
 - 线上：ai-client/ai-task-worker 运行 V11 镜像；task_steps.phase 已 ALTER
 - 剩余已知缺陷：DeepSeek agent 对图片修改类任务偶发"只分析不交付"（repair loop 兜底为明确失败；复测 3/3 正常）；T7 视觉问答长 reasoning 截断（WP14 自动重试已接，待模型端验证）
+
+## 2026-08-15 V1.1 续接轮（vision MCP 补齐，3 commits，本地全绿）
+
+**背景**：V1.1 主链（WP1-WP20）完成后剩余缺陷集中在图片/视觉链路；用户补齐 vision MCP（本地 4 工具）后续接。
+
+**本轮完成**：
+- **图片任务根因强化**（2bb0c5a）：视觉摘要由系统代读并内联进每次执行 prompt 与修复指令（UNTRUSTED 标记防注入；prompt 防重复内联）；图片任务 maxAttempts 2→3（复杂工作区）；attempt-N.json 落盘与 execute prompt 一致（含视觉摘要）。直接针对 DeepSeek"只分析不交付"——agent 无需先读 vision/ 文件即带全部视觉信息
+- **vision MCP 视觉验收**（835957f）：scripts/vision-fixture.mjs（reference/正例/反例素材）+ scripts/render-html.mjs（产物 HTML→截图）+ docs/V11_VISION_VERIFICATION.md。实测：正例 goal_met=true conf 0.92；反例正确识别背景/标题/按钮色/卡片数全部差异。补上 T3 类任务"只验证存在、不验证视觉一致"的缺口。goal 措辞经验：写"判断是否视觉一致"而非"是否按参考重做"
+- **WP14 判定提取纯函数**（af777ed）：lib/message/reasoningRetry.ts（stop=length/max_tokens + reasoning-only + 未重试 → 重试）+ 8 单测；page.tsx 行为不变；确认服务端 max_tokens 上限 32K ≥ 重试 16K，无服务端阻塞
+- **测试**：267/267（V1.1 基线 257 + dev-executor 图片任务 2 + reasoning-retry 8），typecheck PASS
+
+**Blocked（HARD BLOCKER #1：需用户提供密钥）**：T7 视觉问答 reasoning 截断与 DeepSeek 图片任务的**真实模型复测**需 OPENCODE_GO_API_KEY（本地 .env.local 仅 ACCESS/E2E_PASSWORD/DATABASE/REDIS）或 tencent-ai 服务器访问（本机无 ssh 配置/无远程 docker context/file-agent 容器）。系统侧行为已全部就绪且有测试；模型端验证待 key。
