@@ -45,7 +45,7 @@ test("V1.5 Phase A：AgentScope 驱动写 markdown 任务 → 真实产物 + 契
   userId = user.id;
   const task = (await query("INSERT INTO tasks (user_id, title, goal, type, status) VALUES ($1,'v15','把任务说明整理成 markdown 文件写入 output/','agent_workspace','queued') RETURNING id", [user.id])).rows[0].id;
 
-  const wsRoot = process.env.WORKSPACES_ROOT;
+  const wsRoot = process.env.WORKSPACES_ROOT as string;
   fs.mkdirSync(path.join(wsRoot, "tasks", String(task), "task"), { recursive: true });
   fs.writeFileSync(path.join(wsRoot, "tasks", String(task), "task", "task.md"), "# 任务\n\n请写一份关于拉格朗日量的简介 markdown 到 output/。");
 
