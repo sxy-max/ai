@@ -21,14 +21,28 @@ class FakeClaudeCodeRuntime implements AgentRuntimeAdapter {
   readonly available = true;
   failPrepare = false;
   failOutput = false;
+  /** 模拟图片任务"只分析不交付"：第一次执行输出分析文本但不产文件。 */
+  failFirstOutput = false;
+  /** 记录每次 execute 收到的 prompt（断言视觉摘要/修复指令用）。 */
+  prompts: string[] = [];
+  private callCount = 0;
 
   async prepare(): Promise<RuntimePrepareResult> {
     return this.failPrepare ? { ok: false, error: "fake runtime 不可用" } : { ok: true, detail: "fake 就绪" };
   }
 
   async execute(request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void | Promise<void>): Promise<SandboxRunResult> {
+    this.prompts.push(request.prompt);
+    this.callCount++;
     const taskId = request.job.jobId.replace("task-", "");
     const root = path.join(WORKSPACES_ROOT, "tasks", taskId);
+    if (this.failFirstOutput && this.callCount === 1) {
+      // 只分析不交付：输出分析文本，不产出文件
+      await onEvent({ type: "tool", name: "Read", detail: "读取参考图描述" });
+      await onEvent({ type: "text", text: "分析：该页面应改为深色科技风卡片布局…" });
+      await onEvent({ type: "done", exitCode: 0 });
+      return { ok: true, exitCode: 0 };
+    }
     await onEvent({ type: "tool", name: "Read", detail: "读取 input" });
     await onEvent({ type: "tool", name: "Write", detail: "修改文件" });
     await onEvent({ type: "text", text: "正在处理…" });
@@ -187,4 +201,111 @@ test("dev 步骤：无产物 → 明确错误（DEV_OUTPUT_EMPTY）", async () =
   const attemptsDir = path.join(WORKSPACES_ROOT, "tasks", task.rows[0].id, "agent", "attempts");
   const attemptFiles = fs.existsSync(attemptsDir) ? fs.readdirSync(attemptsDir) : [];
   assert.ok(attemptFiles.length >= 1, "应有 attempt 记录");
+});
+
+test("图片任务：视觉摘要内联进 prompt；首轮只分析不交付 → 自动修复轮交付", async () => {
+  const task = await query<{ id: string }>(
+    `INSERT INTO tasks (user_id, goal, type, title, status) VALUES ($1, '按截图修改页面', 'agent_workspace', '图片任务', 'queued') RETURNING id`,
+    [userId]
+  );
+  const taskId = task.rows[0].id;
+
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2kS8AAAAASUVORK5CYII=", "base64");
+  const uploadedImg = artifactService.createArtifact({ filename: "shot.png", content: png, kind: "image", source: "upload" });
+  const uploadedHtml = artifactService.createArtifact({ filename: "index.html", content: "<html><body>旧页面</body></html>", kind: "html", source: "upload" });
+
+  const runtime = new FakeClaudeCodeRuntime();
+  runtime.failFirstOutput = true; // 首轮"只分析不交付"
+  const summary = await runDevStep(
+    {
+      taskId,
+      stepId: "step-1",
+      userId,
+      goal: "按截图修改页面：把 index.html 重做成截图中的深色卡片风格",
+      files: [{ id: uploadedImg.id, filename: "shot.png" }, { id: uploadedHtml.id, filename: "index.html" }],
+      signal: new AbortController().signal,
+      emit: async () => {}
+    },
+    {
+      adapter: runtime,
+      workspacesRoot: WORKSPACES_ROOT,
+      describeVision: async () => "summary：深色科技风页面，居中卡片\nlayout：单卡片居中\nvisible_text：Go AI 云工作台\ncolors：深蓝背景 #0b0f1a，蓝色主按钮 #3b82f6"
+    }
+  );
+
+  const wsRoot = path.join(WORKSPACES_ROOT, "tasks", taskId);
+  // 1. vision 落盘（新契约 vision/ + 旧容器兼容 .go-ai/vision/）
+  assert.equal(fs.existsSync(path.join(wsRoot, "vision", "shot.md")), true, "vision/shot.md 应落盘");
+  assert.equal(fs.existsSync(path.join(wsRoot, ".go-ai", "vision", "shot.md")), true, ".go-ai/vision/shot.md 应落盘（旧容器兼容）");
+
+  // 2. 每次执行 prompt 都内联视觉摘要（系统侧代读，agent 无需先读 vision 文件）
+  assert.ok(runtime.prompts.length >= 2, `应执行 2 次（首轮+修复轮），实际 ${runtime.prompts.length}`);
+  for (const p of runtime.prompts) {
+    assert.match(p, /\[参考图视觉摘要/, "prompt 应含视觉摘要");
+    assert.match(p, /Go AI 云工作台/, "摘要内容应进入 prompt");
+    assert.match(p, /UNTRUSTED/, "摘要必须标记 UNTRUSTED");
+  }
+
+  // 3. 修复轮 prompt = 修复指令 + 摘要（要求实际产出文件）
+  assert.match(runtime.prompts[1], /任务尚未完成/, "修复轮应含修复指令");
+  assert.match(runtime.prompts[1], /当前缺失/, "修复指令应列出缺失项");
+  assert.match(runtime.prompts[1], /必须产出真实文件/, "修复指令应强调交付");
+
+  // 4. 修复轮交付 → 任务完成
+  assert.match(summary.summary, /1 个文件/);
+  // 成功后不再重试：恰好 2 次 execute
+  assert.equal(runtime.prompts.length, 2, "成功后不应继续重试");
+});
+
+test("图片任务：始终不交付 → 有限重试（3 次）→ 明确失败，attempts 全量落盘", async () => {
+  const task = await query<{ id: string }>(
+    `INSERT INTO tasks (user_id, goal, type, title, status) VALUES ($1, '按截图重做页面', 'agent_workspace', '图片任务失败', 'queued') RETURNING id`,
+    [userId]
+  );
+  const taskId = task.rows[0].id;
+
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2kS8AAAAASUVORK5CYII=", "base64");
+  const uploadedImg = artifactService.createArtifact({ filename: "shot.png", content: png, kind: "image", source: "upload" });
+
+  const runtime = new FakeClaudeCodeRuntime();
+  // 所有轮次都不产出（覆盖 execute 为纯分析）
+  runtime.execute = async (request, onEvent) => {
+    runtime.prompts.push(request.prompt);
+    await onEvent({ type: "tool", name: "Read", detail: "读取参考图描述" });
+    await onEvent({ type: "text", text: "分析：页面应该这样改…" });
+    await onEvent({ type: "done", exitCode: 0 });
+    return { ok: true, exitCode: 0 };
+  };
+
+  await assert.rejects(
+    runDevStep(
+      {
+        taskId,
+        stepId: "step-1",
+        userId,
+        goal: "按截图重做页面",
+        files: [{ id: uploadedImg.id, filename: "shot.png" }],
+        signal: new AbortController().signal,
+        emit: async () => {}
+      },
+      {
+        adapter: runtime,
+        workspacesRoot: WORKSPACES_ROOT,
+        describeVision: async () => "summary：深色卡片页面\nlayout：居中卡片"
+      }
+    ),
+    /TASK_CONTRACT_RETRYABLE/
+  );
+
+  // 图片任务 maxAttempts=3：首轮 + 3 次修复 = 4 次 execute，attempt-1..3 落盘
+  assert.equal(runtime.prompts.length, 4, `图片任务应尝试 4 次（1+3），实际 ${runtime.prompts.length}`);
+  const attemptsDir = path.join(WORKSPACES_ROOT, "tasks", taskId, "agent", "attempts");
+  const attemptFiles = fs.existsSync(attemptsDir) ? fs.readdirSync(attemptsDir).sort() : [];
+  assert.deepEqual(attemptFiles, ["attempt-1.json", "attempt-2.json", "attempt-3.json"], "3 次修复尝试应全量落盘");
+  for (const f of attemptFiles) {
+    const record = JSON.parse(fs.readFileSync(path.join(attemptsDir, f), "utf8"));
+    assert.equal(record.maxAttempts, 3);
+    assert.ok(record.failureReason, "应有失败原因");
+    assert.match(record.repairInstruction, /当前 Workspace 状态/);
+  }
 });
