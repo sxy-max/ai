@@ -17,7 +17,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import type { SandboxExecResult, SandboxFileEntry, SandboxProvider, SandboxSpec } from "./manager";
 
-const DEFAULT_IMAGE = process.env.SANDBOX_IMAGE || "node:24-alpine";
+const DEFAULT_IMAGE = process.env.SANDBOX_IMAGE || "go-ai-sandbox:v1";
 const DOCKER_NETWORK = process.env.SANDBOX_NETWORK || "none";
 
 export type DockerSandboxOptions = {
