@@ -213,9 +213,21 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     const context = await buildPlanContext(task);
     // V1.2 WP3/WP7：生成统一执行策略（runtime/模型角色/预算/工具）；dev 步骤据此选 runtime
     const executionPlan = buildExecutionPlan(task, context.files);
+    // V1.3 WP22-23：availableModels 来自 ProviderHealth（probe 结果；不可用模型被排除）
+    let availableModels: string[] | undefined;
+    try {
+      const { providerHealthRegistry } = await import("../policy/providerHealth");
+      const { readProbeResults, applyProbeCacheToRegistry } = await import("../policy/providerProbe");
+      applyProbeCacheToRegistry(await readProbeResults());
+      availableModels = providerHealthRegistry.availableModels(
+        (process.env.FEATURED_MODELS || "deepseek-v4-pro,deepseek-v4-flash,kimi-k3,qwen3.8-max,glm-5.2,minimax-m3,gpt-5.6-luna,grok-4.5")
+          .split(",").map((m) => m.trim()).filter(Boolean)
+      );
+    } catch {}
     policy = planExecutionPolicy({
       requirements: requirementsFromPlan(executionPlan),
       availableRuntimes: runtimeAvailability(),
+      availableModels,
     });
     // V1.3 WP2：创建 Durable Job（Task=意图，Job=执行；重试时 attempt 递增）
     job = await createJob({

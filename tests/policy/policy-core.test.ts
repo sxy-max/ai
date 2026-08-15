@@ -47,6 +47,13 @@ test("未知模型：仅基础文本能力，不假设高级能力", () => {
   assert.equal(modelHasCapability("some-unknown-model-xyz", "tool_execution"), false);
 });
 
+
+test("WP24：模型 region 能力声明（ProviderRoute 用，非代码 if model）", () => {
+  const luna = capabilitiesForModel("gpt-5.6-luna");
+  assert.equal(luna.region, "eligible-egress");
+  const flash = capabilitiesForModel("deepseek-v4-flash");
+  assert.equal(flash.region, undefined, "普通模型无区域要求");
+});
 test("runtime 能力：claude-code 有 shell/code；agentscope 有 state/event_stream/shell（V1.2 实测内置 Bash/PowerShell）；deterministic 只有生成类", () => {
   assert.equal(runtimeHasCapability("claude-code", "shell"), true);
   assert.equal(runtimeHasCapability("claude-code", "code_execution"), true);

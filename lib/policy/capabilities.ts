@@ -44,6 +44,8 @@ export type ModelCapabilities = {
   reasoning: ReasoningLevel;
   /** 模型标识（未知模型用 "unknown"）。 */
   id: string;
+  /** V1.3 WP24：模型要求的出口区域（如 "eligible-egress"）；ProviderRoute 据此路由，非代码 if model。 */
+  region?: string;
 };
 
 export type RuntimeId = "deterministic" | "claude-code" | "agentscope";
@@ -106,10 +108,11 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     reasoning: "medium",
     capabilities: new Set(["text_generation", "reasoning", "file_read", "tool_execution", "multi_step_agent", "long_context"]),
   },
-  // 研究路径保留（当前 region 受限；见 WP18 ProviderHealthRegistry）
+  // 研究路径保留（当前 region 受限；见 WP18 ProviderHealthRegistry / WP24 ProviderRoute）
   "gpt-5.6-luna": {
     id: "gpt-5.6-luna",
     reasoning: "high",
+    region: "eligible-egress",
     capabilities: new Set(["text_generation", "reasoning", "vision", "visual_understanding", "code_execution", "artifact_generation", "structured_output"]),
   },
 };

@@ -5,6 +5,7 @@ import { timeoutSignal } from "../../../lib/http";
 import { allowOtherModels, API_ROOT, capabilitiesForModel, featuredModelIds, featuredModelMeta, hasConfiguredFeaturedModels } from "../../../lib/opencode";
 import { modelPolicy } from "../../../lib/modelPolicy";
 import { checkRateLimit } from "../../../lib/rate-limit";
+import { providerHealthRegistry } from "../../../lib/policy/providerHealth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +66,12 @@ export async function GET(request: Request) {
   if (E2E) for (const id of MOCK_MODELS) featured.add(id);
   const allowOther = allowOtherModels();
 
+  // V1.3 WP23：后台 probe 缓存（Redis）→ 本进程 registry（模型状态不再依赖即时探测）
+  try {
+    const { readProbeResults, applyProbeCacheToRegistry } = await import("../../lib/policy/providerProbe");
+    applyProbeCacheToRegistry(await readProbeResults());
+  } catch {}
+
   const normalizedGo = goModels.map((raw) => {
     const capabilities = capabilitiesForModel(raw.id, raw);
     return {
@@ -72,6 +79,8 @@ export async function GET(request: Request) {
       id: raw.id,
       displayName: raw.id,
       ...capabilities,
+      // V1.3 WP23：真实 provider 状态（available/degraded/region_blocked/unavailable/disabled）
+      healthStatus: providerHealthRegistry.statusOf(raw.id),
       providerMeta: {
         contextWindow: raw.context_window ?? raw.context_length ?? null,
         maxOutput: raw.max_output_tokens ?? null,
