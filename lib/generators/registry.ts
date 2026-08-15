@@ -7,6 +7,7 @@ import { generateHtml } from "./html";
 import { generateMarkdown } from "./markdown";
 import { generatePptx } from "./pptx";
 import { generateXlsx } from "./xlsx";
+import { PdfGenerator } from "./pdfGenerator";
 import { isGeneratorKind, GeneratorError, type ArtifactGenerator, type GeneratorInput, type GeneratorOutput } from "./types";
 
 const REGISTRY: Partial<Record<ArtifactKind, ArtifactGenerator>> = {
@@ -16,6 +17,11 @@ const REGISTRY: Partial<Record<ArtifactKind, ArtifactGenerator>> = {
   markdown: generateMarkdown,
   xlsx: generateXlsx,
   docx: generateDocx,
+  // V1.4 WP12：PDF 生成器（系统 chromium 渲染 HTML→PDF；无浏览器抛错由上层转明确失败）
+  pdf: async (input: GeneratorInput): Promise<GeneratorOutput> => {
+    const out = await new PdfGenerator().generate({ goal: input.message, fileContext: undefined });
+    return { filename: out.filename, mime: out.mime, kind: "pdf", content: out.content };
+  },
 };
 
 export { isGeneratorKind } from "./types";
