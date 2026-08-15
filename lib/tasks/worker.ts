@@ -168,11 +168,24 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
   console.log(`[task-worker] 处理任务 ${taskId}（${task.title}）`);
   await emitTaskEvent(task.id, "task.started", { title: task.title });
 
+  // V1.3 WP19：per-task abort（Cancel 时中断正在执行的 Agent/Sandbox，而非等步骤自然结束）
+  const taskAbort = new AbortController();
+  const runSignal = AbortSignal.any([signal, taskAbort.signal]);
+
   // 租约心跳：执行期间定期续期，崩溃后由其他 worker 按 lease_expires 回收
   const heartbeat = setInterval(() => {
     void query("UPDATE tasks SET lease_expires = now() + make_interval(secs => $2) WHERE id = $1 AND status IN ('planning','running','preparing_workspace','validating','retrying')", [taskId, LEASE_SECONDS]).catch(() => {});
     // V1.3 WP2：Job 级心跳续租
     if (job) void heartbeatJob(job.id, LEASE_SECONDS * 1000, `worker-${process.pid}`).catch(() => {});
+    // V1.3 WP19：Cancel 检测——任务被取消则中断当前执行
+    void query("SELECT status FROM tasks WHERE id = $1", [taskId])
+      .then((r) => {
+        if (r.rows[0]?.status === "cancelled" && !taskAbort.signal.aborted) {
+          console.log(`[task-worker] 任务 ${taskId} 已取消，中断当前执行`);
+          taskAbort.abort();
+        }
+      })
+      .catch(() => {});
   }, LEASE_RENEW_INTERVAL_MS);
   heartbeat.unref?.();
 
@@ -219,7 +232,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
 
     for (const step of steps) {
       // 暂停/取消检查点
-      const control = await checkPoint(taskId, signal);
+      const control = await checkPoint(taskId, runSignal);
       if (control === "cancelled") {
         await emitTaskEvent(taskId, "task.cancelled", {});
         return;
@@ -263,7 +276,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
           userMemory: context.userMemory,
           skills: context.skills,
           policy,
-          signal,
+          signal: runSignal,
           emit: (type: TaskEventType, payload: Record<string, unknown> = {}) => emitTaskEvent(task.id, type, payload)
         });
         // F3 守卫：执行期间任务被取消/失败/重试 → 丢弃本步骤结果（避免旧执行污染新 run）
@@ -292,7 +305,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       }
 
       // 步骤间暂停/取消检查
-      const control2 = await checkPoint(taskId, signal);
+      const control2 = await checkPoint(taskId, runSignal);
       if (control2 === "cancelled") {
         await emitTaskEvent(taskId, "task.cancelled", {});
         return;
@@ -346,6 +359,16 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // V1.3 WP19：Cancel 中断的执行 → cancelled（不是 failed）
+    if (taskAbort.signal.aborted || /TASK_ABORTED|TASK_CANCELLED/.test(message)) {
+      console.log(`[task-worker] 任务 ${taskId} 已取消（执行中断）`);
+      await updateTaskStatus(task.id, "cancelled", { error: "用户取消" }).catch(() => {});
+      await emitTaskEvent(taskId, "task.cancelled", { interrupted: true }).catch(() => {});
+      await updateJobStatus(job?.id || "", "cancelled", { failure_code: "TASK_CANCELLED" }).catch(() => {});
+      const current = await getTask(task.id);
+      if (current) await notifyTaskFinished(current, false).catch(() => {});
+      return;
+    }
     console.error(`[task-worker] 任务 ${taskId} 异常:`, message);
     await updateTaskStatus(task.id, "failed", { error: message }).catch(() => {});
     await emitTaskEvent(taskId, "task.failed", { error: message }).catch(() => {});

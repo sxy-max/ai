@@ -211,7 +211,11 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   });
 
   // 2. 独立 workspace（task 隔离；与 file-agent 容器共享挂载卷）
-  const root = path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "tasks", input.taskId);
+  // V1.3 WP21：Project Workspace（ENABLE_PROJECT_WS=1 时同 project 任务共享 projects/{projectId} 根，
+  // 多轮项目修改不重复上传；adapter 共享卷映射需配套，默认关闭）
+  const root = input.projectId && process.env.ENABLE_PROJECT_WS === "1"
+    ? path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "projects", input.projectId)
+    : path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "tasks", input.taskId);
   const ws = new WorkspaceManager(root);
   ws.createWorkspace();
   // V1.3 WP15：workspace manifest（清单落盘；Planner/Agent 可读）

@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dbPool } from "./pool";
 
-export const SCHEMA_VERSION = "v1.3";
+export const SCHEMA_VERSION = "v1.4";
 
 export async function migrate() {
   const sql = readFileSync(join(__dirname, "schema.sql"), "utf8");

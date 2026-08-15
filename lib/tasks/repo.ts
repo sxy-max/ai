@@ -5,7 +5,7 @@ import { publishTaskEvent } from "../db/redis";
 import { assertTransition, TERMINAL_STATUSES } from "./state";
 import type { AgentRunRow, NewTaskInput, PlanStep, TaskEventRow, TaskEventType, TaskRow, TaskStepRow } from "./types";
 
-const TASK_COLUMNS = "id, user_id, project_id, parent_task_id, title, goal, description, status, type, priority, current_stage, progress, plan, planner_run_id, result_summary, error, worker_id, lease_expires, created_at, started_at, updated_at, completed_at";
+const TASK_COLUMNS = "id, user_id, project_id, parent_task_id, parent_artifact_id, workspace_parent_version, title, goal, description, status, type, priority, current_stage, progress, plan, planner_run_id, result_summary, error, worker_id, lease_expires, created_at, started_at, updated_at, completed_at";
 
 function rowToTask(row: Record<string, unknown>): TaskRow {
   return {
@@ -201,20 +201,36 @@ export async function continueTask(taskId: string, newGoal: string) {
   if (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") throw new Error("TASK_NOT_CONTINUABLE");
   const trimmed = String(newGoal || "").trim();
   if (!trimmed) throw new Error("GOAL_REQUIRED");
+  // V1.3 WP20：lineage——记录上轮最新产物 id 与 workspace manifest 版本（二轮继承上轮 workspace）
+  const latestArtifact = await query<{ id: string }>(
+    "SELECT id FROM artifacts WHERE task_id = $1 AND status = 'ready' ORDER BY created_at DESC LIMIT 1", [taskId]
+  );
+  const parentArtifactId = latestArtifact.rows[0]?.id || null;
+  let workspaceVersion: number | null = null;
+  try {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const manifestPath = path.join(process.env.WORKSPACES_ROOT || "/data/workspaces", "tasks", taskId, ".go-ai", "workspace-manifest.json");
+    if (fs.existsSync(manifestPath)) {
+      workspaceVersion = JSON.parse(fs.readFileSync(manifestPath, "utf8")).version ?? null;
+    }
+  } catch {}
   await withTransaction(async (client) => {
     await client.query(
       `UPDATE tasks SET status = 'queued', goal = $2, plan = '[]'::jsonb, result_summary = '', error = '',
        progress = 0, current_stage = '', worker_id = '', lease_expires = NULL, completed_at = NULL, updated_at = now(),
-       parent_task_id = CASE WHEN parent_task_id IS NULL THEN id ELSE parent_task_id END
+       parent_task_id = CASE WHEN parent_task_id IS NULL THEN id ELSE parent_task_id END,
+       parent_artifact_id = $3,
+       workspace_parent_version = $4
        WHERE id = $1`,
       [taskId, `${task.goal}
 
-（追加要求）${trimmed}`]
+（追加要求）${trimmed}`, parentArtifactId, workspaceVersion]
     );
     // 清空旧步骤（重新规划，产物保留版本化）
     await client.query("DELETE FROM task_steps WHERE task_id = $1", [taskId]);
   });
-  await emitTaskEvent(taskId, "task.continued", { newGoal: trimmed });
+  await emitTaskEvent(taskId, "task.continued", { newGoal: trimmed, parentArtifactId, workspaceVersion });
 }
 
 export async function retryTask(taskId: string) {

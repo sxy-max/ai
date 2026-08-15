@@ -45,6 +45,17 @@ test("WP26：项目历史产物进入 planner 上下文（多轮任务知道上�
   assert.equal(b?.project_id, projectId);
 });
 
+
+test("V1.3 WP20：continue lineage（parent_artifact_id + workspace 版本）", async () => {
+  const task = await createTask({ userId, goal: "做网站", title: "lineage" });
+  const artifact = await registerTaskArtifact({ taskId: task.id, userId, filename: "site.zip", name: "site", kind: "zip", content: Buffer.from("zip") });
+  await query("UPDATE tasks SET status = 'completed' WHERE id = $1", [task.id]);
+
+  await continueTask(task.id, "按钮改蓝一点");
+  const updated = await getTask(task.id);
+  assert.equal(updated?.parent_artifact_id, artifact.id, "应记录上轮产物 id");
+  assert.equal(updated?.workspace_parent_version, null, "无 manifest 时版本为 null（任务未执行过 dev 步骤）");
+});
 test("WP25：continueTask 原地续跑（同一任务 + 产物版本化 lineage）", async () => {
   const task = await createTask({ userId, goal: "写一篇文章", title: "文章" });
   await registerTaskArtifact({ taskId: task.id, userId, filename: "文章.md", name: "文章", kind: "markdown", content: "v1" });

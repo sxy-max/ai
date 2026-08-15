@@ -340,3 +340,8 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   closed_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_job ON agent_sessions(job_id);
+
+-- ============ V1.3：Continue lineage（WP20）============
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_artifact_id UUID REFERENCES artifacts(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_parent_version INTEGER;

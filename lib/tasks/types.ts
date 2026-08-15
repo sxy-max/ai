@@ -31,6 +31,8 @@ export type TaskRow = {
   user_id: string;
   project_id: string | null;
   parent_task_id: string | null;
+  parent_artifact_id: string | null;
+  workspace_parent_version: number | null;
   title: string;
   goal: string;
   description: string;
