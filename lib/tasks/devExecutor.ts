@@ -107,6 +107,8 @@ export type DevStepInput = {
   goal: string;
   projectId?: string | null;
   files: Array<{ id: string; filename: string }>;
+  /** V1.2 WP28：技能文本（SkillResolver 解析后；注入 Agent Runtime context）。 */
+  skills?: string;
   signal: AbortSignal;
   emit: (type: TaskEventType, payload?: Record<string, unknown>) => Promise<void>;
 };
@@ -263,6 +265,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
         maxTurns: 15,
         visionMd: vision.visionMd,
         fileManifest: true,
+        skills: input.skills ? [input.skills] : [],
         workspace: ws,
         adapter,
         store,

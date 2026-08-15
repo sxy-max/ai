@@ -27,6 +27,8 @@ class FakeClaudeCodeRuntime implements AgentRuntimeAdapter {
   failFirstOutput = false;
   /** 记录每次 execute 收到的 prompt（断言视觉摘要/修复指令用）。 */
   prompts: string[] = [];
+  /** WP28：记录 skills 注入。 */
+  skillsReceived?: string[];
   private callCount = 0;
 
   async prepare(): Promise<RuntimePrepareResult> {
@@ -35,6 +37,7 @@ class FakeClaudeCodeRuntime implements AgentRuntimeAdapter {
 
   async execute(request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void | Promise<void>): Promise<SandboxRunResult> {
     this.prompts.push(request.prompt);
+    this.skillsReceived = request.skills;
     this.callCount++;
     const taskId = request.job.jobId.replace("task-", "");
     const root = path.join(WORKSPACES_ROOT, "tasks", taskId);
@@ -257,6 +260,36 @@ test("图片任务：视觉摘要内联进 prompt；首轮只分析不交付 →
   assert.match(summary.summary, /1 个文件/);
   // 成功后不再重试：恰好 2 次 execute
   assert.equal(runtime.prompts.length, 2, "成功后不应继续重试");
+});
+
+test("dev 步骤：Skills 注入 Agent Runtime 上下文（WP28）", async () => {
+  const task = await query<{ id: string }>(
+    `INSERT INTO tasks (user_id, goal, type, title, status) VALUES ($1, '修改页面', 'agent_workspace', '技能任务', 'queued') RETURNING id`,
+    [userId]
+  );
+  const taskId = task.rows[0].id;
+  const uploaded = artifactService.createArtifact({ filename: "index.html", content: "<html>旧</html>", kind: "html", source: "upload" });
+
+  const runtime = new FakeClaudeCodeRuntime();
+  await runDevStep(
+    {
+      taskId,
+      stepId: "step-1",
+      userId,
+      goal: "修改页面",
+      files: [{ id: uploaded.id, filename: "index.html" }],
+      skills: "HTML 修改规则：保留语义结构，使用语义标签",
+      signal: new AbortController().signal,
+      emit: async () => {}
+    },
+    { adapter: runtime, workspacesRoot: WORKSPACES_ROOT }
+  );
+
+  // fake runtime 的 execute 应收到 skills（SkillResolver → Agent Runtime context）
+  assert.ok(runtime.prompts.length >= 1, "应至少执行一次");
+  // prompt 本身是任务说明（不内联 skills）；skills 经 request.skills 传递
+  assert.equal(runtime.skillsReceived?.length, 1);
+  assert.match(runtime.skillsReceived?.[0] || "", /语义标签/);
 });
 
 test("图片任务：始终不交付 → 有限重试（3 次）→ 明确失败，attempts 全量落盘", async () => {

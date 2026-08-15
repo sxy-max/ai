@@ -212,6 +212,7 @@ async function runDev(ctx: StepContext): Promise<StepResult> {
     goal: ctx.step.goal,
     projectId: ctx.projectId,
     files: files.map((f) => ({ id: String(f.id), filename: String(f.filename) })),
+    skills: ctx.skills,
     signal: ctx.signal,
     emit: ctx.emit
   }, { policy: ctx.policy });
