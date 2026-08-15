@@ -1,5 +1,47 @@
 # Go AI — Execution State
 
+## 2026-08-16 V1.4 完成（tag go-ai-v1.4-artifact-workbench，云端 9/9 矩阵全绿）
+
+**云端部署**：ai-client:v1.4（web+worker，含系统 chromium）；migrate v1.5 已应用；rollback=v1.3 镜像 1b1b8a31eda3 + 源码备份 /opt/ai-client-backup-v11；部署工作流见 docs/V14_CLOUD_DEPLOY_WORKFLOW.md（构建→save→scp→load→rm+run→migrate→矩阵，含全部踩坑表）。
+
+**云端矩阵 9/9 PASS**（scripts/cloud-v14.mjs，真实模型）：C01 markdown / C02 PPTX 两页真实（页数约束）/ C03 CSV→XLSX / C04 DOCX / C05 PDF（系统 chromium，15298B 真实 %PDF）/ C08 网站多文件修改 / C09 项目延续两轮共享 workspace（22 个版本化历史产物）/ C12 并发 3 任务 / C17 项目历史 API。
+
+**云端矩阵暴露并修复的真实问题（勿回退）**：
+- multipart 任务创建缺 projectId 解析（项目关联在上传任务丢失）→ 补齐
+- 规则规划器缺 PDF 分支 → "做成 PDF"落 general → LLM 拒绝式回答 → planFromRules 加 4b
+- artifact 类型任务被 LLM 规划拆 dev 步骤（file-agent 无 pdf 管线）→ generatePlan 对 artifact 类型跳过 LLM 规划
+- PPT"两页"产出 5 页 → extractPageCount + trimSlidesTo 截断（KIND_INSTRUCTIONS 写死 5-8 页）
+- pdf 生成器未注册 legacy registry → 注册（适配器模式）
+- 系统 chromium 需 --no-sandbox（chromiumSandbox: false）
+- @playwright/test 是 devDep 且仅被 esbuild worker 引用 → 移入 dependencies + Dockerfile 手动拷入 standalone（next trace 不覆盖）+ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+- xlsx 意图的 agent_workspace 任务无 xlsx 产物（file-agent 容器无 spreadsheet 工具=limitation）→ toolsFor 授权 spreadsheet.*（AgentScope 通道）+ 矩阵 C03 走 artifact 生成器
+- 系统文件噪音（task.json/context.json 等）→ SYSTEM_ARTIFACT_FILES 过滤（上报路径+兜底收集共用）
+
+**本地**：447/447 + typecheck + build + E2E 17/17。功能清单见下文历史段。
+
+**Known limitations（V1.4 记录）**：
+- Browser Runtime 云端已具备（系统 chromium + --no-sandbox）但**未在云端矩阵实测网页导航**（C10 类）；本地 14 项浏览器测试全绿
+- PPTX 缩略图需 LibreOffice（服务器未装；预览页显示页数+下载提示）
+- Claude Code 通道（file-agent 容器）工具集由容器侧决定——spreadsheet/browser 工具在 AgentScope/sandbox 通道可用
+- general 步骤模型响应超时（deepseek-v4-pro 思考贪心）fallback 文案已区分"未配置"vs"超时"
+- exa 搜索公开端点可用；AgentScope Docker 沙盒仍 local 模式
+
+## 2026-08-16 V1.4 云端部署中（WP19-40/45-52/56-64 本地完成，镜像 ai-client:v1.4 已上服务器）
+
+**本地完成并提交**（HEAD 39019df，443/443 + typecheck + build + E2E 17/17）：
+- **Browser Runtime（WP19-21/53）**：lib/browser/{security,observation,runtime,tools}.ts——playwright chromium 会话（观察模型：url/title/visibleText 8K/元素 120/href 绝对化）、协议白名单（file:/javascript:/data: 拒）、workspace-only 下载（20MB 上限）、导航预算 30/会话、崩溃自动重启+重新导航（lastUrl 保留）；8 工具注册进 Tool Registry（browser.navigate/read_page/click/type/scroll/screenshot/download/back）；sandboxManagerExecutor 桥（沙盒内 agent 调 host 浏览器）；研究类 goal 自动授权 browser 能力
+- **Deliverable 契约（WP28-32）**：AGENT_WORK_INSTRUCTION 注入每次执行 prompt（防"作为 AI 我不能"）；planner 提示要求步骤注明交付物；worker final summary 附真实产物清单；project_agent contract expectations 修复（原为空=形同虚设）
+- **PPTX 语义（WP58）**：移除独立封面页——slideCount=实际页数（"两页 PPT"=两页内容）；legacy/pptxgenjs 两渲染器统一；空 spec 兜底单页
+- **Project Workspace 全开（WP37-40）**：ENABLE_PROJECT_WS 默认开（=0 关）；容器映射 conversationId="projects"/jobId={projectId}；/api/projects（列表+创建）+ /api/projects/:id（任务+版本化产物历史+workspace 文件树）；前端 /projects 列表页 + 详情页重写；延续测试（两轮共享 workspace、input 不重复上传）
+- **InputManifest（WP45-46）**：lib/tasks/inputManifest.ts——每文件结构化摘要（文本预览/xlsx sheet 结构/PDF 页数+正文/NUL 二进制守卫），进 planner 上下文（原只有文件名）
+- **验收测试（WP56-60）**：tests/v14-acceptance.test.ts——物理题两页 PPT（容器/页数/内容含 XML 实体公式/validate）、XLSX 排序+平均分+统计 sheet+图表重读验证、DOCX 内容不丢、PDF 读回+PNG 渲染、契约矩阵、refusal 回归；sortRange 重写（exceljs eachCell 行对象怪癖）；KIND_HINTS 目标类型优先（"CSV 转 Excel"→xlsx）
+- **并发+下载（WP52/64）**：3 任务并发互不污染；下载可靠性（RFC 5987 中文文件名/mime/size/401/404 穿越/过期）
+- **构建**：Dockerfile worker esbuild external @napi-rs/canvas（V1.4 pdf 管线把 canvas 拉进 worker bundle）
+- **部署**：ai-client:v1.4 镜像（353MB）已 load 服务器，web+worker 已 rm+run 替换（env-file /opt/ai-client/.env、go-ai-net、/data 挂载、127.0.0.1:3000），migrate v1.5 已应用
+- **云端矩阵运行中**：scripts/cloud-v14.mjs（C01 markdown/C02 PPTX 两页/C03 CSV→XLSX/C04 DOCX/C05 PDF/C08 ZIP 项目/C09 项目延续/C12 并发 3/C17 项目历史）
+
+**已知 limitation（云端）**：Browser Runtime 需 chromium——服务器 worker 镜像无浏览器（playwright external）；云端浏览器闭环待 sidecar 或沙盒内浏览器；本地已完整验证（8+6 测试）。PPTX 缩略图需 LibreOffice（服务器可后续加）。
+
 ## 2026-08-16 V1.4 WP17-18 完成（Preview System，本地全绿）
 
 **目标**：产物"不下载即可判断结果"（V14 审计 #16 missing → real）。
