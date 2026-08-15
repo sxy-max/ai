@@ -89,3 +89,24 @@ test("llmArtifactContent：未配置 LLM 时返回 null（回退路径）", asyn
     if (originalOg) process.env.OPENCODE_GO_API_KEY = originalOg;
   }
 });
+
+/** V1.4 WP58：PPT 页数约束（LLM 超页截断）。 */
+test("extractPageCount：两页/2 页/三页 → 页数；无页数 → null", async () => {
+  const { extractPageCount } = await import("../../lib/generators/llm");
+  assert.equal(extractPageCount("做两页物理 PPT"), 2);
+  assert.equal(extractPageCount("做 2 页 PPT"), 2);
+  assert.equal(extractPageCount("三页演示"), 3);
+  assert.equal(extractPageCount("做一个 PPT"), null);
+});
+
+test("trimSlidesTo：5 页提纲截断到 2 页（保留标题与顺序）", async () => {
+  const { trimSlidesTo } = await import("../../lib/generators/llm");
+  const content = "# 演示\n## 页一\n- a\n## 页二\n- b\n## 页三\n- c\n## 页四\n- d\n## 页五\n- e";
+  const trimmed = trimSlidesTo(content, 2);
+  assert.ok(trimmed, "应截断");
+  assert.match(trimmed, /页一/);
+  assert.match(trimmed, /页二/);
+  assert.ok(!trimmed.includes("页三"), "第三页应被截掉");
+  assert.equal((trimmed.match(/^## /gm) || []).length, 2, "恰好 2 个 ## 小节");
+  assert.equal(trimSlidesTo(content, 6), null, "未超页不截断");
+});
