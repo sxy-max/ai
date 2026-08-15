@@ -137,3 +137,34 @@
 - **环境限制（非产品缺陷）**：本地代理（Clash TUN）对 opencode.ai 长连接约 40s 断开，≥3000 max_tokens 的生成不可达；服务器无此限制。WP14 客户端重试 16K 语义保留
 - 系统行为最终结论：截断→判定→最多一次重试→提高预算→成功/明确提示，不无限循环（8 单测覆盖）
 - **DeepSeek 图片任务真实复测**：仍需服务器（本地无 file-agent 容器）；模型侧根因已实证 + 视觉摘要内联修复已上线代码，待服务器回归
+
+## 2026-08-15 V1.2 完成（WP1-WP35，tag go-ai-v1.2-runtime-orchestration，云端已部署）
+
+**V1.2 目标**：系统自动选择大脑/Runtime/工具/推理预算/执行策略（Native Agent Runtime & Model Orchestration）。
+
+**核心交付**：
+- **Capability Model**（lib/policy/capabilities.ts）：Model/Runtime/Task 三套能力声明，业务层不再散落 model-name 判断
+- **ExecutionPolicyEngine**（executionPolicy.ts）：deterministic-first（PPT→generator、ZIP/图片→agent runtime、vision+chat 分离）；worker 按 plan 生成 ExecutionPolicy（modelRole/runtime/budget/tools/retry）
+- **ModelPolicyEngine**（modelPolicy.ts）：角色链（chat=flash、reasoning=pro→qwen→glm、agent=flash、vision=minimax），capability-safe fallback
+- **TokenBudgetManager**（tokenBudget.ts）：6 档预算（tiny→deep_reasoning），stop=length 按档升级（非乘 10），BudgetTrace 落盘
+- **AgentLoop 统一事件**（agent/loop.ts）：11 事件 + 状态机；devExecutor 修复循环发 validation.failed/repair.started/agent.completed
+- **Tool Registry 2.0**（tools/registry.ts）：capabilities/timeout/sideEffects/resultSchema + authorizedTools 授权（代码执行默认不授）
+- **AgentScope 真实 Runtime**：本地闭环（MD 385ms/CSV 334ms/图片HTML 26.6s）+ 云端真实模型任务（AS-MD note v1、AS-IMG-HTML index v1）；共享卷同步（input→agent 工作区、output→任务 workspace）；scripts/agentscope-server.py + scripts/agentscope-real-acceptance.ts
+- **Vision 验证闭环**（vision/verification.ts + screenshot.ts）：VISION_VERIFY=1 时渲染产物→describe→结构化对比→repair 反馈（有界）
+- **Generator 边界/PPTX theme/XLSX reader/DocumentAdapter**（boundary.ts/presentationSpec theme/xlsxReader/documentAdapter）
+- **ProviderHealthRegistry + FallbackGraph**：Luna 根因=服务器出口 IP 区域限制（本地 probe 200，账户/key 有效）；Grok 上游 503 保持禁用
+- **FailureTaxonomy + RepairPolicyEngine + TaskExecutionMetrics**（PG task_metrics 表 v1.2 迁移）
+- **ContextComposer + Skills 进 Agent Runtime**（dev 步骤 skills 注入缺口修复）
+- **Project Workspace 上下文 + Continuation lineage**（项目历史产物进 planner 上下文、parent_task_id 标记）
+
+**验证**：本地 350/350 unit/integration + typecheck + build + E2E 17/17；云端 Claude Code 8/8（E1 模型/E2 MD/E3 CSV/E4 PPTX/E6 图片HTML/E7 ZIP/E9 continuation/E10 下载）+ AgentScope 云端 2/2（MD/图片HTML）+ worker restart ✓
+
+**云端部署**：ai-client:v1.2（web+worker，migrate v1.2）+ AgentScope 生产栈（agent-runtime + sandbox-daemon dind；AGENTSCOPE_SANDBOX=local 模式，Docker 沙盒已就绪待工具兼容验证）；rollback=旧镜像 latest（e13115d1634d）+ 源码备份 /opt/ai-client-backup-v11
+
+**已知缺陷/记录**：
+- AgentScope Docker 沙盒模式（DockerWorkspaceManager）工具/schema 与真实模型不兼容（upstream error）→ 已切 local 沙盒；Docker 沙盒修复待续（WP29 记录的生产隔离项）
+- deepseek-v4-pro 在 AgentScope 工具循环不调用工具 → AGENTSCOPE_MODEL=kimi-k3（记录）
+- 云端 /api/models 无 deepseek-v4-flash（opencode 通道服务器侧模型列表差异；agent fallback 链会处理）
+- AgentScope credential API 无鉴权返回明文 key（internal 网络内；记录）
+- 注册限流 5 次/小时（IP 级内存态；重启 web 清空）——E2E 脚本固定账号登录优先
+- 服务器 docker build 的 next standalone 生成异常（本地构建镜像传输；记录）
