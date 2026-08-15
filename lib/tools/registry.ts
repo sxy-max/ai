@@ -239,7 +239,9 @@ const codeTools: AgentTool[] = [
 
 // ============ 注册表 ============
 
-const ALL_TOOLS: AgentTool[] = [...filesystemTools, ...archiveTools, ...dataTools, ...artifactTools, ...visionTools, ...codeTools];
+import { SPREADSHEET_TOOLS } from "./spreadsheet";
+
+const ALL_TOOLS: AgentTool[] = [...filesystemTools, ...archiveTools, ...dataTools, ...artifactTools, ...visionTools, ...codeTools, ...SPREADSHEET_TOOLS];
 
 /** V1.2 WP11：工具元数据（能力/运行时/超时/副作用/结果 schema；集中声明，不散落）。 */
 const TOOL_META: Record<string, Partial<AgentTool>> = {
