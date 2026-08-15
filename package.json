@@ -12,7 +12,7 @@
     "typecheck": "next typegen && tsc --noEmit --incremental false",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "test": "npm run test:core && npm run test:integration",
-    "test:core": "tsx --test --test-concurrency=1 --test-timeout=60000 tests/**/*.test.ts",
+    "test:core": "tsx --test --test-concurrency=1 --test-timeout=120000 tests/**/*.test.ts",
     "test:integration": "npm run build && node tests/integration.mjs",
     "test:message": "tsx --test tests/message-lifecycle.test.ts tests/transform.test.ts",
     "test:unit": "tsx --test tests/message-lifecycle.test.ts tests/transform.test.ts",

@@ -158,6 +158,25 @@ export function sandboxManagerExecutor(options: {
             });
             return execResultToToolResult(call.id, exec);
           }
+          // V1.4 WP19：浏览器工具桥——沙盒内 Agent 经 host 侧 BrowserRuntime 执行（沙盒 --network none 不拦浏览器）
+          case "browser.navigate":
+          case "browser.read_page":
+          case "browser.click":
+          case "browser.type":
+          case "browser.scroll":
+          case "browser.screenshot":
+          case "browser.download":
+          case "browser.back": {
+            const { browserAct } = await import("../browser/tools");
+            const { WorkspaceManager } = await import("../workspace/service");
+            const action = call.name.split(".")[1] as "navigate" | "read_page" | "click" | "type" | "scroll" | "screenshot" | "download" | "back";
+            const result = await browserAct(
+              { action, ...call.arguments } as never,
+              { taskId: "sandbox", userId: "system", workspace: new WorkspaceManager(workspaceRoot) }
+            );
+            if (result.ok) return { id: call.id, status: "success", data: result.output };
+            return { id: call.id, status: "error", stderr: result.error || "browser 工具执行失败" };
+          }
           case "shell.exec": {
             const command = call.arguments.command;
             const args = Array.isArray(command) ? command.map(String) : [String(command ?? "")];

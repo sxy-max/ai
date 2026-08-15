@@ -21,6 +21,7 @@ import { GoFileAgentAdapter } from "../sandbox/dockerClaudeCode";
 import { AgentScopeRuntimeAdapter } from "../sandbox/agentscopeRuntime";
 import { runAgentJob, JobRunOutcome } from "../agent/runner";
 import { JobStore } from "../agent/jobStore";
+import { closeBrowserSession } from "../browser/tools";
 import { WorkspaceManager } from "../workspace/service";
 import { scanWorkspaceVision, type VisionDescribe } from "../vision/workspaceScanner";
 import { registerTaskArtifact, listTaskArtifacts } from "./artifacts";
@@ -444,6 +445,7 @@ ${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并
   }
 
   if (verdict.status !== "completed") {
+    await closeBrowserSession(root);
     await updateAgentSession(session.id, { state: "failed", closed_at: new Date().toISOString() });
     await input.emit("agent.failed", { error: `TASK_CONTRACT_RETRYABLE：${verdict.reason}`, code: "TASK_CONTRACT_RETRYABLE" });
     throw new Error(`TASK_CONTRACT_RETRYABLE：${verdict.reason}（已尝试 ${maxAttempts} 次）`);
@@ -451,6 +453,7 @@ ${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并
 
   await updateAgentSession(session.id, { state: "completed", closed_at: new Date().toISOString() });
   await input.emit("agent.completed", { summary: "交付契约满足", artifactCount: (await listTaskArtifacts(input.taskId)).length });
+  await closeBrowserSession(root);
 
   if (outcome.status !== "done" || !outcome.result.ok) {
     const error = outcome.result.error || "DEV_RUN_FAILED";
@@ -463,7 +466,6 @@ ${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并
   }
   return { summary: `工作区执行完成，交付 ${total} 个文件（产物已注册并可下载）` };
 }
-
 async function listRegisteredNames(taskId: string): Promise<Set<string>> {
   const { listTaskArtifacts } = await import("./artifacts");
   const artifacts = await listTaskArtifacts(taskId);

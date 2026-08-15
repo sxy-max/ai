@@ -240,8 +240,9 @@ const codeTools: AgentTool[] = [
 // ============ 注册表 ============
 
 import { SPREADSHEET_TOOLS } from "./spreadsheet";
+import { BROWSER_TOOLS } from "../browser/tools";
 
-const ALL_TOOLS: AgentTool[] = [...filesystemTools, ...archiveTools, ...dataTools, ...artifactTools, ...visionTools, ...codeTools, ...SPREADSHEET_TOOLS];
+const ALL_TOOLS: AgentTool[] = [...filesystemTools, ...archiveTools, ...dataTools, ...artifactTools, ...visionTools, ...codeTools, ...SPREADSHEET_TOOLS, ...BROWSER_TOOLS];
 
 /** V1.2 WP11：工具元数据（能力/运行时/超时/副作用/结果 schema；集中声明，不散落）。 */
 const TOOL_META: Record<string, Partial<AgentTool>> = {
@@ -254,6 +255,14 @@ const TOOL_META: Record<string, Partial<AgentTool>> = {
   "artifact.register": { capabilities: ["file_read"], timeoutMs: 15_000, sideEffects: ["artifact-create"], resultSchema: "{ok, output: {artifactId, downloadUrl}}" },
   "vision.read_context": { capabilities: ["vision", "file_read"], timeoutMs: 10_000, sideEffects: [], resultSchema: "{ok, output: {context}}", runtimeAvailability: ["claude-code", "agentscope"] },
   "code.python.exec": { capabilities: ["code_execution"], timeoutMs: 35_000, sideEffects: ["code-execution", "process-spawn"], resultSchema: "{ok, output: string<10KB>}", runtimeAvailability: ["claude-code", "agentscope"] },
+  "browser.navigate": { capabilities: ["browser"], timeoutMs: 70_000, sideEffects: [], resultSchema: "{ok, output: observation JSON}" },
+  "browser.read_page": { capabilities: ["browser"], timeoutMs: 30_000, sideEffects: [], resultSchema: "{ok, output: observation JSON}" },
+  "browser.click": { capabilities: ["browser"], timeoutMs: 30_000, sideEffects: [], resultSchema: "{ok, output: observation JSON}" },
+  "browser.type": { capabilities: ["browser"], timeoutMs: 30_000, sideEffects: [], resultSchema: "{ok, output: observation JSON}" },
+  "browser.scroll": { capabilities: ["browser"], timeoutMs: 30_000, sideEffects: [], resultSchema: "{ok, output: observation JSON}" },
+  "browser.screenshot": { capabilities: ["browser"], timeoutMs: 30_000, sideEffects: [], resultSchema: "{ok, output: observation JSON with screenshot data URL}" },
+  "browser.download": { capabilities: ["browser", "file_write"], timeoutMs: 60_000, sideEffects: ["filesystem-write", "browser-download"], resultSchema: "{ok, output: observation JSON}" },
+  "browser.back": { capabilities: ["browser"], timeoutMs: 70_000, sideEffects: [], resultSchema: "{ok, output: observation JSON}" },
 };
 
 export const TOOL_REGISTRY: Record<string, AgentTool> = Object.fromEntries(

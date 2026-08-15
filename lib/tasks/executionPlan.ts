@@ -106,6 +106,8 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
 
   // agent_workspace 类型：按输入细分
   if (task.type === "agent_workspace") {
+    // V1.4 WP19：研究/网页类意图 → 授权浏览器工具（沙盒内 Agent 经 host 桥执行）
+    const wantsBrowser = /查|搜|研究|调查|调研|浏览|网页|资料|官网|wiki|文章|新闻|网址|报告/.test(goal);
     const base = {
       executor: "workspace" as const,
       modelRole: "agent" as const,
@@ -114,7 +116,7 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
       needsFiles: true,
       expectedArtifacts: ["file"],
       timeout: DEFAULT_TIMEOUT,
-      capabilities: ["agent", "workspace", "claude-code"],
+      capabilities: ["agent", "workspace", "claude-code", ...(wantsBrowser ? (["browser"] as const) : [])],
       contract: {
         expectations: [] as Array<{ kind?: string; filenamePattern?: string; minCount?: number; mustBeNonEmpty?: boolean; validate?: "format" | "none" }>,
         minArtifacts: 1,

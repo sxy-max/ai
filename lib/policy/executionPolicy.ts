@@ -88,6 +88,10 @@ function toolsFor(requirements: TaskRequirements): string[] {
   const tools = ["filesystem.read", "filesystem.write", "filesystem.list", "artifact.register"];
   if (requirements.artifactKinds.some((k) => k === "zip")) tools.push("archive.extract", "archive.pack");
   if (requirements.visionNeeded) tools.push("vision.read_context");
+  // V1.4 WP19：研究/网页类任务（requiredCapabilities 含 browser）授权浏览器工具集
+  if (requirements.requiredCapabilities.includes("browser")) {
+    tools.push("browser.navigate", "browser.read_page", "browser.click", "browser.type", "browser.scroll", "browser.screenshot", "browser.download", "browser.back");
+  }
   return tools;
 }
 
