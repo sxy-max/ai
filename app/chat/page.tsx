@@ -6,6 +6,7 @@ import TopNav from "../../components/TopNav";
 import MessageParts from "../../components/message/MessageParts";
 import PersonalizationPanel from "../../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, streamingStatus, sanitizeForUpstream } from "../../lib/message/lifecycle";
+import { shouldRetryForLengthTruncation } from "../../lib/message/reasoningRetry";
 import { transformContent } from "../../lib/artifacts/transform";
 import { normalizeMessageStatus } from "../../lib/message/types";
 import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, selectRelevantSkills, type PersonalizationProfile } from "../../lib/personalization";
@@ -657,7 +658,14 @@ export default function Home() {
       const _hasArtifact = !!(assistant.artifacts && assistant.artifacts.length);
 
       // WP14：stop=length 且 reasoning-only（无 final 无 artifact）→ 自动重试一次（提高 max_tokens）
-      if (!_finalText && !_hasArtifact && _finalReason && /length|max_tokens/i.test(stopReason) && !retriedForLength) {
+      const retryDecision = shouldRetryForLengthTruncation({
+        finalText: _finalText,
+        hasArtifact: _hasArtifact,
+        finalReason: _finalReason,
+        stopReason,
+        alreadyRetried: retriedForLength,
+      });
+      if (retryDecision.retry) {
         setError("推理内容较长被截断，正在用更高输出上限重试…");
         setInput(prompt);  // 恢复输入框
         setBusy(false);
