@@ -5,7 +5,7 @@
  * 用户 memory/偏好永远不能覆盖 SystemPolicy（安全规则）。
  */
 
-export type ContextLayer = "system_policy" | "task_instruction" | "skill" | "project" | "user_preference";
+export type ContextLayer = "system_policy" | "task_instruction" | "extra" | "skill" | "project" | "user_preference";
 
 export type ComposerInput = {
   systemPolicy?: string;
