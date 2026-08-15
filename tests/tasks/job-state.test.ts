@@ -85,9 +85,27 @@ test("过期 Job 认领：lease 超时且非终态 → 其他 worker 接管（re
   const job2 = await createJob({ taskId: task2.id, userId });
   await query("UPDATE jobs SET lease_owner = 'alive', lease_until = now() + interval '1 minute', status = 'running' WHERE id = $1", [job2.id]);
   const notClaimed = await claimExpiredJob("worker-2", 90_000, ["running"]);
-  assert.equal(notClaimed, null, "有效租约不应被认领");
+  assert.ok(!notClaimed || notClaimed.task_id !== task2.id, "有效租约的本任务 job 不应被认领");
 });
 
+
+test("V1.3 WP12：worker 死亡后 Job 租约恢复（任务重新入队）", async () => {
+  const task = await createTask({ userId, goal: "崩溃恢复", title: "job-recover" });
+  const job = await createJob({ taskId: task.id, userId, runtime: "agentscope" });
+  // 模拟 worker 崩溃：任务 running + lease 过期 + job running + lease 过期
+  await query("UPDATE tasks SET status = 'running', lease_expires = now() - interval '1 minute' WHERE id = $1", [task.id]);
+  await query("UPDATE jobs SET status = 'running', lease_owner = 'dead', lease_until = now() - interval '1 minute' WHERE id = $1", [job.id]);
+
+  const { recoverOrphanedTasks } = await import("../../lib/tasks/worker");
+  const recovered = await recoverOrphanedTasks();
+  assert.ok(recovered >= 2, "任务与 job 都应被回收");
+
+  const taskAfter = await query<{ status: string }>("SELECT status FROM tasks WHERE id = $1", [task.id]);
+  assert.equal(taskAfter.rows[0].status, "queued", "任务应重新入队");
+  const jobAfter = await getJob(job.id);
+  assert.equal(jobAfter?.status, "recovering", "job 应标记 recovering");
+  assert.equal(jobAfter?.lease_owner, "worker-" + process.pid, "job 应由新 worker 认领");
+});
 test("AgentSession：创建→工具计数→完成关闭", async () => {
   const task = await createTask({ userId, goal: "会话", title: "session-test" });
   const job = await createJob({ taskId: task.id, userId, runtime: "agentscope" });

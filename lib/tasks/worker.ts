@@ -31,7 +31,7 @@ import { listTaskArtifacts } from "./artifacts";
 import { validateTaskCompletion } from "./completion";
 import { listEnabledSkillsText } from "./skills";
 import { recordTaskMetrics } from "./metrics";
-import { createJob, heartbeatJob, updateJobStatus, writeJobCheckpoint, type JobCheckpoint } from "./job";
+import { createJob, heartbeatJob, updateJobStatus, writeJobCheckpoint, claimExpiredJob, type JobCheckpoint } from "./job";
 
 export type WorkerOptions = {
   pollMs?: number;
@@ -119,7 +119,19 @@ export async function recoverOrphanedTasks(): Promise<number> {
     );
     console.log(`[task-worker] 回收孤儿任务 ${row.id}`);
   }
-  return result.rows.length;
+  // V1.3 WP12：Job 级租约恢复（worker 死亡后其他 worker 认领；对应任务重新入队）——循环处理全部过期 job
+  let jobRecovered = 0;
+  while (true) {
+    const claim = await claimExpiredJob(`worker-${process.pid}`, LEASE_SECONDS * 1000, ["running", "planning", "waiting_tool", "repairing", "recovering"]);
+    if (!claim) break;
+    await query(
+      "UPDATE tasks SET status = 'queued', worker_id = '', lease_expires = NULL, updated_at = now() WHERE id = $1 AND status IN ('planning','running','preparing_workspace','validating','retrying','queued')",
+      [claim.task_id]
+    );
+    console.log(`[task-worker] Job ${claim.id}（任务 ${claim.task_id}）租约过期，重新入队`);
+    jobRecovered++;
+  }
+  return result.rows.length + jobRecovered;
 }
 
 async function claimNextTask(): Promise<string | null> {
