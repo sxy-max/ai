@@ -68,7 +68,7 @@ export async function GET(request: Request) {
 
   // V1.3 WP23：后台 probe 缓存（Redis）→ 本进程 registry（模型状态不再依赖即时探测）
   try {
-    const { readProbeResults, applyProbeCacheToRegistry } = await import("../../lib/policy/providerProbe");
+    const { readProbeResults, applyProbeCacheToRegistry } = await import("../../../lib/policy/providerProbe");
     applyProbeCacheToRegistry(await readProbeResults());
   } catch {}
 
