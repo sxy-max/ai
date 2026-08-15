@@ -15,7 +15,8 @@ export type PresentationSlide = {
   equations: string[];
   /** 演讲者备注。 */
   notes?: string;
-  layout?: "title" | "content" | "two-column";
+  /** V1.4 WP5：布局原语（Layout Engine；content=自动启发式）。 */
+  layout?: "title" | "title-content" | "two-column" | "comparison" | "timeline" | "process" | "data" | "image-focus" | "quote" | "summary" | "content";
 };
 
 export type PresentationSpec = {
@@ -95,6 +96,9 @@ function isSpec(value: unknown): value is PresentationSpec {
   });
 }
 
+/** V1.4 WP5：全部布局原语。 */
+const VALID_LAYOUTS = ["title", "title-content", "two-column", "comparison", "timeline", "process", "data", "image-focus", "quote", "summary", "content"];
+
 function normalizeSpec(value: PresentationSpec): PresentationSpec {
   const hexOf = (v: unknown): string | undefined => {
     const s = String(v || "").trim();
@@ -109,7 +113,7 @@ function normalizeSpec(value: PresentationSpec): PresentationSpec {
       sections: (Array.isArray(slide.sections) ? slide.sections : []).map((s) => String(s).slice(0, 500)).slice(0, 8),
       equations: (Array.isArray(slide.equations) ? slide.equations : []).map((e) => String(e).slice(0, 300)).slice(0, 4),
       notes: typeof slide.notes === "string" ? slide.notes.slice(0, 500) : undefined,
-      layout: slide.layout === "two-column" || slide.layout === "title" ? slide.layout : "content"
+      layout: VALID_LAYOUTS.includes(slide.layout as string) ? slide.layout : "content"
     })),
     ...(theme
       ? {
