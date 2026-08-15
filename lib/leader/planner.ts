@@ -25,7 +25,8 @@ const PLANNER_SYSTEM_PROMPT = `你是云端 AI 工作系统的任务规划者（
 1. 一个任务 1-8 步；步骤之间有依赖时保持顺序。
 2. 需要先了解材料再产出的任务，先加 general/research 步骤，再加 artifact 步骤。
 3. 涉及联网调研再总结出报告的：research → artifact(markdown)。
-4. 输出严格为 JSON 数组，不要任何其他文字：
+4. 每个步骤的 goal 必须写明该步骤要交付的东西（文件/报告/修改结果），不要只写"思考""回答"。
+5. 输出严格为 JSON 数组，不要任何其他文字：
 [{"seq":1,"worker_type":"research","title":"步骤标题","goal":"该步骤要完成的具体目标"}]`;
 
 /** 生成 Plan；LLM 失败或未配置时回退到规则规划。 */

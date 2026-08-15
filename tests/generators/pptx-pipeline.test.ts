@@ -45,15 +45,15 @@ test("spec → renderPptx → 两页真实 .pptx（标题/内容/公式可解析
 
   const zip = await JSZip.loadAsync(buffer);
   const slideFiles = Object.keys(zip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
-  assert.equal(slideFiles.length, 3, "标题页 + 2 内容页");
+  assert.equal(slideFiles.length, 2, "两页内容页（V1.4 起无封面页）");
 
   // 内容页文本包含物理内容
+  const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string");
+  assert.match(slide1 || "", /问题背景/);
+  assert.match(slide1 || "", /拉格朗日量/);
   const slide2 = await zip.file("ppt/slides/slide2.xml")?.async("string");
-  assert.match(slide2 || "", /问题背景/);
-  assert.match(slide2 || "", /拉格朗日量/);
-  const slide3 = await zip.file("ppt/slides/slide3.xml")?.async("string");
-  assert.match(slide3 || "", /平衡位置/);
-  assert.match(slide3 || "", /小振动频率/);
+  assert.match(slide2 || "", /平衡位置/);
+  assert.match(slide2 || "", /小振动频率/);
 });
 
 test("specFromText：markdown 提纲回退 → 结构化 spec", () => {

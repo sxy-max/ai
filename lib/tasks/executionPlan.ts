@@ -137,7 +137,9 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
         ...base,
         taskType: "project_agent",
         expectedArtifacts: ["zip", "file"],
-        capabilities: [...base.capabilities, "zip", "multi-file"]
+        capabilities: [...base.capabilities, "zip", "multi-file"],
+        // V1.4 WP29：项目任务同样必须有非空交付（修复 expectations 为空导致契约形同虚设）
+        contract: { ...base.contract, expectations: [{ kind: undefined, filenamePattern: "*", minCount: 1, validate: "format" }] }
       };
     }
     const type = hasFiles ? "file_transform" : "workspace_agent";

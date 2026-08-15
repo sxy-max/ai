@@ -264,8 +264,13 @@ function contentSlideXml(slideTitle: string, bullets: string[]): string {
 
 export async function generatePptx({ message }: GeneratorInput): Promise<GeneratorOutput> {
   const deck: Deck = parseDeck(message);
-  const slides = deck.slides.map((s) => ({ title: s.title, bullets: s.bullets }));
-  const slideCount = slides.length + 1; // 标题页 + 内容页
+  // V1.4 无独立封面页：首内容页标题承载演示主题（deck.title）——仅当该页无实质标题（占位/空）时
+  const slides = deck.slides.map((s, i) => ({
+    title: i === 0 && (!s.title || s.title === "要点") && deck.title && deck.title !== "演示文稿" ? deck.title : s.title,
+    bullets: s.bullets,
+  }));
+  // V1.4 WP58：无独立封面页——slideCount 与内容页数一致（"两页 PPT"= 两页内容）
+  const slideCount = slides.length;
 
   const zip = new JSZip();
   zip.file("[Content_Types].xml", contentTypesXml(slideCount));
@@ -279,10 +284,8 @@ export async function generatePptx({ message }: GeneratorInput): Promise<Generat
   zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml());
   zip.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRelsXml());
   zip.file("ppt/theme/theme1.xml", themeXml());
-  zip.file("ppt/slides/slide1.xml", titleSlideXml(deck.title, deck.subtitle));
-  zip.file("ppt/slides/_rels/slide1.xml.rels", slideRelsXml());
   slides.forEach((s, i) => {
-    const n = i + 2;
+    const n = i + 1;
     zip.file(`ppt/slides/slide${n}.xml`, contentSlideXml(s.title, s.bullets));
     zip.file(`ppt/slides/_rels/slide${n}.xml.rels`, slideRelsXml());
   });

@@ -106,30 +106,34 @@ export function sortRange(handle: WorkbookHandle, sheet: string, columnIndex: nu
   const ws = handle.workbook.getWorksheet(sheet);
   if (!ws) throw new Error(`sheet 不存在: ${sheet}`);
   const startRow = hasHeader ? 2 : 1;
-  const rows: Array<{ rowNumber: number; key: number | string }> = [];
+  const maxCol = ws.columnCount;
+  // 显式逐格快照（getCell，避开 exceljs eachCell 的行对象引用怪癖）
+  const readRow = (r: number): unknown[] => {
+    const vals: unknown[] = [];
+    for (let c = 1; c <= maxCol; c++) vals.push(ws.getCell(r, c).value);
+    return vals;
+  };
+  const rows: Array<{ rowNumber: number; key: number | string; values: unknown[] }> = [];
   for (let r = startRow; r <= ws.rowCount; r++) {
     const cell = ws.getCell(r, columnIndex);
     const v = cell.value;
-    rows.push({ rowNumber: r, key: typeof v === "number" ? v : String(v ?? "") });
+    rows.push({ rowNumber: r, key: typeof v === "number" ? v : String(v ?? ""), values: readRow(r) });
   }
   rows.sort((a, b) => {
     const cmp = typeof a.key === "number" && typeof b.key === "number" ? a.key - b.key : String(a.key).localeCompare(String(b.key), "zh-CN");
     return direction === "asc" ? cmp : -cmp;
   });
-  // 重写行（先快照全部值，再写入——避免 exceljs 行对象引用污染）
-  const snapshot = rows.map((r) => {
-    const row = ws.getRow(r.rowNumber);
-    const vals: unknown[] = [];
-    row.eachCell({ includeEmpty: true }, (cell, col) => { vals[col - 1] = cell.value; });
-    return vals;
-  });
-  snapshot.forEach((vals, i) => {
-    const target = ws.getRow(startRow + i);
-    vals.forEach((v, idx) => { if (v !== undefined) (target.getCell(idx + 1) as { value: unknown }).value = v; });
-  });
-  for (let r = startRow + snapshot.length; r <= ws.rowCount; r++) {
-    ws.getRow(r).eachCell({ includeEmpty: true }, (cell) => { (cell as { value: unknown }).value = null; });
+  // 写回：先清目标行，再逐格写入（行号连续 from startRow）
+  for (let r = startRow; r < startRow + rows.length; r++) {
+    const target = ws.getRow(r);
+    target.eachCell({ includeEmpty: true }, (cell) => { (cell as { value: unknown }).value = null; });
   }
+  rows.forEach((row, i) => {
+    const target = ws.getRow(startRow + i);
+    row.values.forEach((v, idx) => {
+      if (v !== undefined && v !== null) (target.getCell(idx + 1) as { value: unknown }).value = v;
+    });
+  });
 }
 
 /** 过滤行（列值匹配）。 */

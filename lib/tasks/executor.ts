@@ -123,10 +123,12 @@ async function runResearch(ctx: StepContext): Promise<StepResult> {
 // ============ Artifact Worker ============
 
 const KIND_HINTS: Array<[ArtifactKind, string[]]> = [
-  ["csv", ["csv"]],
+  // V1.4 WP14：目标类型（"转成 Excel"）优先于源类型（"CSV"）——xlsx/excel 在 csv 前
   ["xlsx", ["xlsx", "excel", "电子表格", "数据表"]],
+  ["csv", ["csv"]],
   ["pptx", ["pptx", "ppt", "演示", "slides", "幻灯片"]],
   ["docx", ["docx", "word"]],
+  ["pdf", ["pdf"]],
   ["html", ["html", "网页", "页面", "网站", "dashboard"]],
   ["markdown", ["markdown", "md", "报告", "文档"]]
 ];

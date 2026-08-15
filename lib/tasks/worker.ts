@@ -348,9 +348,14 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
         throw new Error(`TASK_OUTPUT_VALIDATION_FAILED：${verdict.results.filter((r) => !r.ok).map((r) => `${r.filename}: ${r.error || "格式验证失败"}`).join("；")}`);
       }
     }
-    const summary = summaryParts.length ? summaryParts.join("；").slice(0, 1000) : "任务执行完成";
+    // V1.4 WP32：Final Response 产物优先——完成摘要附真实产物清单（文件名+类型）
+    const finalArtifacts = await listTaskArtifacts(task.id).catch(() => []);
+    const artifactList = finalArtifacts.length
+      ? `；产物：${finalArtifacts.map((a) => `${a.name}（${a.type}）`).join("、")}`
+      : "";
+    const summary = (summaryParts.length ? summaryParts.join("；") : "任务执行完成") + artifactList;
     await updateTaskStage(task.id, "完成", 100);
-    await updateTaskStatus(task.id, "completed", { resultSummary: summary });
+    await updateTaskStatus(task.id, "completed", { resultSummary: summary.slice(0, 1200) });
     await emitTaskEvent(taskId, "task.completed", { summary });
     await notifyTaskFinished(await getTaskOrThrow(task.id), true, summary);
     console.log(`[task-worker]   任务完成: ${summary.slice(0, 100)}`);

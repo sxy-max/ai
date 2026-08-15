@@ -69,11 +69,11 @@ test("pptx 生成器渲染 LLM 提纲内容 → 幻灯片数与页标题正确",
   assert.equal(output.kind, "pptx");
   const zip = await JSZip.loadAsync(output.content as Buffer);
   const slideFiles = Object.keys(zip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
-  assert.equal(slideFiles.length, 3, "标题页 + 2 个内容页");
+  assert.equal(slideFiles.length, 2, "两页内容页（V1.4 起无独立封面页）");
+  const slide1 = await zip.file("ppt/slides/slide1.xml")?.async("string");
+  assert.match(slide1 || "", /一季度概览/);
   const slide2 = await zip.file("ppt/slides/slide2.xml")?.async("string");
-  assert.match(slide2 || "", /一季度概览/);
-  const slide3 = await zip.file("ppt/slides/slide3.xml")?.async("string");
-  assert.match(slide3 || "", /趋势/);
+  assert.match(slide2 || "", /趋势/);
 });
 
 test("llmArtifactContent：未配置 LLM 时返回 null（回退路径）", async () => {

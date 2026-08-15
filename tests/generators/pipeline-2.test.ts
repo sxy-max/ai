@@ -102,7 +102,7 @@ test("pptx theme：spec.theme 覆盖默认配色（产物仍为合法 PPTX）", 
   assert.ok(zip.file("[Content_Types].xml"), "Content_Types 存在");
   assert.ok(zip.file("ppt/presentation.xml"), "presentation.xml 存在");
   const slideCount = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length;
-  assert.equal(slideCount, 2, "标题页 + 1 内容页");
+  assert.equal(slideCount, 1, "1 内容页（V1.4 起无封面页）");
 });
 
 test("无 theme 时默认配色渲染不回归", async () => {

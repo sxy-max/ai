@@ -56,27 +56,12 @@ export async function renderPptxFromSpec(spec: PresentationSpec): Promise<Buffer
   pptx.company = "Cloud Agent Workspace";
   pptx.title = spec.title;
 
-  // 标题页
-  const titleSlide = pptx.addSlide();
-  titleSlide.background = { color: theme.titleBackground };
-  titleSlide.addText(spec.title, {
-    x: 0.8, y: 2.2, w: 11.7, h: 1.6,
-    fontSize: 34, bold: true, color: theme.titleText, fontFace: FONT,
-    align: "center", valign: "middle"
-  });
-  if (spec.subtitle) {
-    titleSlide.addText(spec.subtitle, {
-      x: 0.8, y: 4.0, w: 11.7, h: 0.6,
-      fontSize: 16, color: theme.subtitleText, fontFace: FONT, align: "center"
-    });
-  }
-  titleSlide.addText("由 Go AI 云端智能体工作台生成", {
-    x: 0.8, y: 6.6, w: 11.7, h: 0.4,
-    fontSize: 10, color: theme.footerText, fontFace: FONT, align: "center"
-  });
-
-  // 内容页
-  for (const slide of spec.slides) {
+  // V1.4 WP58：无独立封面页——slideCount 必须等于文件实际页数（"两页 PPT"= 两页内容）
+  // 标题信息保留在 pptx.title / slide.notes；空 spec 兜底为单页标题页
+  const slides: PresentationSpec["slides"] = spec.slides.length
+    ? spec.slides
+    : ([{ title: spec.title || "演示文稿", objective: "", sections: [] as string[], equations: [] as string[], layout: "title-content" }] as PresentationSpec["slides"]);
+  for (const slide of slides) {
     const s = pptx.addSlide();
     s.background = { color: theme.slideBackground };
     s.addText(slide.title, {

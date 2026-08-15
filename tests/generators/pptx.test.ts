@@ -25,17 +25,17 @@ test("1. 生成合法 PPTX 包：zip 结构 + 必要部件齐备", async () => {
     assert.ok(zip.file(required), `缺少部件 ${required}`);
   }
   const slides = await loadSlides(out.content);
-  assert.ok(slides.length >= 2, "至少标题页 + 内容页");
+  assert.ok(slides.length >= 1, "至少 1 内容页（V1.4 起无独立封面页）");
 });
 
-test("2. 标题页含标题文本；内容页含要点（XML 转义）", async () => {
+test("2. 内容页含标题文本与要点（XML 转义）", async () => {
   const out = await generatePptx({ message: "做两页 PPT，主题：Go AI & 云 <安全> 演示" });
   const slides = await loadSlides(out.content);
   const slide1 = slides[0];
   assert.ok(slide1.includes("&lt;安全&gt;"), "特殊字符必须转义");
   assert.ok(slide1.includes("&amp;"), "& 必须转义");
-  const slide2 = slides[1];
-  assert.ok(slide2.includes("<a:t>"), "内容页含文本段");
+  assert.ok(slide1.includes("<a:t>"), "内容页含文本段");
+  if (slides.length > 1) assert.ok(slides[1].includes("<a:t>"), "第二页含文本段");
 });
 
 test("3. 页数上限 6，确定性：同输入同输出", async () => {
