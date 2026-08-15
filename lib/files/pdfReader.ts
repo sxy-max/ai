@@ -85,12 +85,11 @@ export async function renderPdfFirstPage(buf: Buffer): Promise<Buffer | null> {
     page.cleanup();
     await doc.destroy();
     return png;
-  } catch {
+  } catch (e) {
+    console.error("[pdfReader:renderPdfFirstPage]", (e as Error)?.message || e);
     return null;
   }
 }
-
-/** 保存 PDF 到临时文件（外部工具用）。 */
 export async function writePdfTemp(buf: Buffer): Promise<string> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "goai-pdf-"));
   const file = path.join(dir, "input.pdf");

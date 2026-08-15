@@ -228,10 +228,10 @@ export default function TaskDetailPage() {
               <div className="artifact-grid">
                 {!artifacts.length && <p className="empty-copy">任务完成后，这里展示可下载的文件。</p>}
                 {artifacts.map((artifact) => (
-                  <a key={artifact.id} href={artifact.downloadUrl} className="artifact-card">
+                  <a key={artifact.id} href={`/artifacts/${artifact.id}`} className="artifact-card">
                     <div className="artifact-icon">{artifact.type.slice(0, 3).toUpperCase()}</div>
                     <div><strong>{artifact.name}</strong><small>v{artifact.version} · {readableBytes(artifact.size)} · {artifact.type}</small></div>
-                    <span>下载 ↓</span>
+                    <span>预览 →</span>
                   </a>
                 ))}
               </div>

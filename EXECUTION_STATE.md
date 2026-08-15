@@ -1,5 +1,18 @@
 # Go AI — Execution State
 
+## 2026-08-16 V1.4 WP17-18 完成（Preview System，本地全绿）
+
+**目标**：产物"不下载即可判断结果"（V14 审计 #16 missing → real）。
+
+**交付**：
+- **PreviewService**（lib/artifacts/preview.ts）：按 family 路由渲染——xlsx→table HTML（复用 summarizeXlsx）、docx→文本提取、html→原样、image→data URL（真实 mime）、zip→file tree、pdf→首页 PNG（pdfjs+@napi-rs/canvas）、pptx→slideCount 元数据；未知 kind→none
+- **缓存**：文本类（table/text/tree/html）落盘为 preview-<id> artifact（前缀须过 sanitizeFilename，冒号会被替换成下划线导致查找失配）；首次返回 content 内联+url，命中只返回 url；image/pdf data URL 不落盘（按资产类型显式判定，不按 startsWith("data:")——img 包裹是 `<img src="data:...">` 会被误判）
+- **API**：GET /api/artifacts/:id/preview（鉴权+kind 推断）；import 深度 5 级（app/api/artifacts/[id]/preview/ 比 [id]/ 多一级）
+- **前端**：产物页接 preview API（table/tree/html/img→sandbox iframe srcDoc+最小内联样式；docx→pre；pptx→页数提示）；任务详情页产物卡片改为链到 /artifacts/:id（预览页内下载）
+- **构建修复**：@napi-rs/canvas（.node 资产进不了 Turbopack ESM chunk）+ pdfjs-dist（fake-worker 动态 import pdf.worker.mjs 相对路径，打包内联后文件不存在）加入 serverExternalPackages（runtime require/import 原生可用）；其余纯 JS 包（exceljs/jszip）正常打 bundle，external 反而因 ESM-only 在 require 时炸
+- **验证**：test:core 409/409（新增 9 项 preview 测试）+ typecheck + build + E2E 17/17；standalone 运行时冒烟（真实登录→二进制 PDF 落盘→预览 API 出 page PNG，HTML 缓存命中，unknown→none）
+- **遗留**：PPTX 缩略图需服务器 LibreOffice（当前返回页数+下载提示）；preview.ts/pdfReader 渲染失败 console.error 保留（诊断用）
+
 ## Release Candidate Acceptance（2026-08-13）— 版本锁定
 - **Cloud Agent Workspace v7 已上线并锁定**：HEAD `4137839`（本地 = GitHub origin/main = 云端 = Docker 镜像 `f996db89ae4f` 四处一致），容器 2026-08-13 23:33 +08 启动，可回滚旧镜像 `sha256:004496a07…`
 - 线上回归 15/15 PASS（auth/models/pptx/html/csv/agent 闭环）；两个"失败"均为脚本阈值：csv 19B 是确定性最小输出、agent exitCode=1 是只读 no-op 的自检判定

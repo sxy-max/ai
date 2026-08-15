@@ -102,6 +102,6 @@ export const KIND_TO_FAMILY: Record<string, ArtifactFamily> = {
   zip: "archive", json: "data", txt: "text", code: "code_project",
 };
 
-export function familyOfKind(kind: string): ArtifactFamily {
-  return KIND_TO_FAMILY[kind] || "data";
+export function familyOfKind(kind: string): ArtifactFamily | null {
+  return KIND_TO_FAMILY[kind] || null;
 }

@@ -17,7 +17,7 @@ export type ArtifactKind =
 
 export type ArtifactStatus = "ready" | "expired" | "failed";
 
-export type ArtifactSource = "chat" | "artifact_task" | "file_agent" | "manual_upload" | "upload" | "agent";
+export type ArtifactSource = "chat" | "artifact_task" | "file_agent" | "manual_upload" | "upload" | "agent" | "preview";
 
 export type Artifact = {
   id: string;
