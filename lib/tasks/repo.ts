@@ -191,6 +191,11 @@ export async function cancelTask(taskId: string) {
     "UPDATE agent_runs SET status = 'cancelled', completed_at = COALESCE(completed_at, now()) WHERE task_id = $1 AND status = 'running'",
     [taskId]
   );
+  // V1.3 WP19：Job 同步 cancelled（消除 worker 心跳间隔的短暂不一致）
+  await query(
+    "UPDATE jobs SET status = 'cancelled', failure_code = 'TASK_CANCELLED', completed_at = COALESCE(completed_at, now()) WHERE task_id = $1 AND status IN ('queued','allocating','preparing','planning','running','waiting_tool','validating','repairing','recovering')",
+    [taskId]
+  );
   await emitTaskEvent(taskId, "task.cancelled", {});
 }
 
