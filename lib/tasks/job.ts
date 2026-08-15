@@ -192,7 +192,7 @@ export type AgentSessionRow = {
 };
 
 export async function createAgentSession(input: {
-  jobId: string;
+  jobId: string | null;
   taskId: string;
   userId: string;
   runtime: string;

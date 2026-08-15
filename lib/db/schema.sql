@@ -324,7 +324,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, lease_until);
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
   task_id UUID NOT NULL,
   user_id UUID NOT NULL,
   runtime TEXT NOT NULL,
@@ -345,3 +345,16 @@ CREATE INDEX IF NOT EXISTS idx_agent_sessions_job ON agent_sessions(job_id);
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_artifact_id UUID REFERENCES artifacts(id) ON DELETE SET NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_parent_version INTEGER;
+
+-- ============ V1.3：Artifact Provenance（WP30）============
+
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS job_id UUID REFERENCES jobs(id) ON DELETE SET NULL;
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS runtime TEXT;
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS source_files JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS validator TEXT;
+ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS validation_status TEXT;
+
+-- agent_sessions.job_id 允许 NULL（直接执行 dev 步骤时无 job）
+ALTER TABLE agent_sessions ALTER COLUMN job_id DROP NOT NULL;

@@ -202,7 +202,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const { latestJobForTask } = await import("./job");
   const job = await latestJobForTask(input.taskId);
   const session = await createAgentSession({
-    jobId: job?.id || input.taskId,
+    jobId: job?.id || null,
     taskId: input.taskId,
     userId: input.userId,
     runtime: runtimeId,
@@ -319,7 +319,12 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
             name: path.basename(name).replace(/\.[^.]+$/, ""),
             kind,
             mime: mimeFromKind(kind),
-            content
+            content,
+            // V1.3 WP30：provenance（job/runtime/model/来源）
+            jobId: job?.id || null,
+            workspaceId: `tasks/${input.taskId}`,
+            runtime: runtimeId,
+            model: policy?.executorModel || process.env.AGENT_MODEL || null,
           });
           return { id: artifact.id, kind: artifact.type as ArtifactKind, name: artifact.name, mime: artifact.mime, size: artifact.size, status: artifact.status as "ready", downloadUrl: `/api/artifacts/${artifact.id}` };
         }

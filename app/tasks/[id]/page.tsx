@@ -11,8 +11,15 @@ type TaskDetail = {
     progress: number; current_stage: string; plan: unknown[]; result_summary: string;
     error: string; created_at: string; started_at: string | null; completed_at: string | null;
   };
+  // V1.3 WP31/33：Job 执行信息 + 失败语义
+  job: {
+    id: string; attempt: number; status: string; runtime: string | null;
+    model: string | null; current_step: string | null; failure_code: string | null;
+    failureLabel: string | null; created_at: string;
+  } | null;
   steps: Array<{ id: string; seq: number; worker_type: string; phase?: string; title: string; goal: string; status: string; detail: Record<string, unknown> | null; error: string; started_at: string | null; completed_at: string | null }>;
   artifacts: Array<{ id: string; name: string; type: string; version: number; size: number; mime: string; status: string; downloadUrl: string; created_at: string }>;
+  files: Array<{ id: string; filename: string; mime: string; size: number }>;
   events: Array<{ id: string; type: string; payload: Record<string, unknown>; created_at: string }>;
 };
 
@@ -118,7 +125,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  const { task, steps, artifacts } = detail;
+  const { task, steps, artifacts, files = [], job } = detail;
 
   const statusMeta = STATUS_META[task.status] || STATUS_META.queued;
   const canPause = task.status === "running" || task.status === "planning";
@@ -136,7 +143,9 @@ export default function TaskDetailPage() {
             <a href="/tasks" className="back-link">← 任务列表</a>
             <h1>{task.title}</h1>
             <p>{task.goal}</p>
-            <small>创建于 {new Date(task.created_at).toLocaleString("zh-CN")}</small>
+            <small>创建于 {new Date(task.created_at).toLocaleString("zh-CN")}
+              {job ? ` · 第 ${job.attempt} 次执行 · ${job.runtime || "runtime"}${job.model ? ` · ${job.model}` : ""}` : ""}
+            </small>
           </div>
           <div className="task-detail-actions">
             <span className={`status-badge ${task.status}`}>{statusMeta.label}</span>
@@ -154,17 +163,25 @@ export default function TaskDetailPage() {
         </div>
 
         {error && <div className="workbench-alert"><span>{error}</span><button onClick={() => setError("")}>关闭</button></div>}
-        {task.error && task.status === "failed" && <div className="task-error-box">{task.error}</div>}
+        {/* V1.3 WP33：失败语义化（内部 failure_code 保留；用户看到可理解原因） */}
+        {task.status === "failed" && (
+          <div className="task-error-box">
+            <b>{job?.failureLabel || "任务执行失败"}</b>
+            {task.error && <small style={{ display: "block", opacity: 0.7, marginTop: 4 }}>{task.error}</small>}
+          </div>
+        )}
 
         <div className="task-detail-tabs">
           <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>活动</button>
           <button className={tab === "steps" ? "active" : ""} onClick={() => setTab("steps")}>步骤</button>
+          {/* V1.3 WP32：文件区（上传文件独立展示，脱离 Chat bubble） */}
+          <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>文件 <b>{files.length}</b></button>
           <button className={tab === "artifacts" ? "active" : ""} onClick={() => setTab("artifacts")}>产物 <b>{artifacts.length}</b></button>
           <button className={tab === "detail" ? "active" : ""} onClick={() => setTab("detail")}>详情</button>
         </div>
 
         <div className="task-detail-body">
-          <section className={`detail-pane ${tab === "activity" || tab === "steps" ? "shown" : ""}`}>
+          <section className={`detail-pane ${tab === "activity" || tab === "steps" || tab === "files" ? "shown" : ""}`}>
             {tab === "activity" ? (
               <div className="run-timeline">
                 {!allEvents.length && <div className="empty-run"><span>01</span><h3>等待执行</h3><p>任务入队后，系统会在这里实时展示每一步进展。</p></div>}
@@ -175,6 +192,16 @@ export default function TaskDetailPage() {
                       <small>{event.type.replaceAll(".", " · ")}</small>
                       <p>{eventLabel(event.type, event.payload)}</p>
                     </div>
+                  </article>
+                ))}
+              </div>
+            ) : tab === "files" ? (
+              <div className="files-list">
+                {!files.length && <p className="empty-copy">本任务没有上传文件。</p>}
+                {files.map((file) => (
+                  <article key={file.id} className="file-card">
+                    <div className="file-icon">{file.mime?.startsWith("image/") ? "IMG" : file.filename.split(".").pop()?.toUpperCase()?.slice(0, 3) || "FILE"}</div>
+                    <div><strong>{file.filename}</strong><small>{readableBytes(file.size)} · {file.mime || "unknown"}</small></div>
                   </article>
                 ))}
               </div>

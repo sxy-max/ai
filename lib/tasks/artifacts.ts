@@ -17,6 +17,14 @@ export type RegisterArtifactInput = {
   mime?: string;
   /** 对外展示名（默认 filename 去扩展名）；同一 task+name 递增版本。 */
   name?: string;
+  /** V1.3 WP30：Artifact Provenance（job/runtime/model/来源文件/validator）。 */
+  jobId?: string | null;
+  workspaceId?: string | null;
+  runtime?: string | null;
+  model?: string | null;
+  sourceFiles?: string[];
+  validator?: string | null;
+  validationStatus?: string | null;
 };
 
 export type TaskArtifactRow = {
@@ -53,8 +61,9 @@ export async function registerTaskArtifact(input: RegisterArtifactInput): Promis
     const version = Number(versionResult.rows[0]?.next ?? 1);
     try {
       const inserted = await query<TaskArtifactRow>(
-        `INSERT INTO artifacts (id, user_id, task_id, project_id, type, name, version, storage_key, file_url, size, mime, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'ready')
+        `INSERT INTO artifacts (id, user_id, task_id, project_id, type, name, version, storage_key, file_url, size, mime, status,
+                                job_id, workspace_id, runtime, model, source_files, validator, validation_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'ready', $12, $13, $14, $15, $16, $17, $18)
          ON CONFLICT (task_id, name, version) DO NOTHING
          RETURNING id, task_id, type, name, version, size, mime, status, created_at`,
         [
@@ -68,7 +77,14 @@ export async function registerTaskArtifact(input: RegisterArtifactInput): Promis
           artifact.id,
           `/api/artifacts/${artifact.id}`,
           artifact.size,
-          artifact.mimeType
+          artifact.mimeType,
+          input.jobId ?? null,
+          input.workspaceId ?? null,
+          input.runtime ?? null,
+          input.model ?? null,
+          JSON.stringify(input.sourceFiles || []),
+          input.validator ?? null,
+          input.validationStatus ?? null
         ]
       );
       if (inserted.rows[0]) row = inserted.rows[0];
