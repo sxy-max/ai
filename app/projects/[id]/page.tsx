@@ -5,14 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import TopNav from "../../../components/TopNav";
 import { readableBytes } from "../../tasks/status-meta";
 
-type FileEntry = { name: string; is_dir: boolean; size_bytes: number | null };
+type ProjectArtifact = { id: string; name: string; type: string; version: number; size: number; createdAt: string; downloadUrl: string };
+type ProjectTask = { id: string; title: string; goal: string; status: string; progress: number | null; result_summary: string | null; created_at: string };
+type WorkspaceFile = { name: string; path: string; dir: boolean; size: number; modified: number; artifactName?: string };
 
 type ProjectDetail = {
-  project: { id: string; name: string; ownerId: string; createdAt: string; updatedAt: string };
-  status: unknown;
-  input: FileEntry[];
-  outputs: FileEntry[];
-  latestRun: { task: string; finalStatus: string; reason: string | null; createdAt: string } | null;
+  project: { id: string; name: string; description: string; created_at: string };
+  artifacts: ProjectArtifact[];
+  tasks: ProjectTask[];
+  files: WorkspaceFile[];
 };
 
 export default function ProjectDetailPage() {
@@ -21,25 +22,40 @@ export default function ProjectDetailPage() {
   const id = params.id;
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState("");
-  const [needsLogin, setNeedsLogin] = useState(false);
 
   const load = useCallback(async () => {
-    const response = await fetch(`/api/workbench/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
-    if (response.status === 401) { setNeedsLogin(true); return; }
+    const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (response.status === 401) { router.replace("/login"); return; }
     if (!response.ok) { setError("项目不存在或无权访问"); return; }
     setDetail(await response.json());
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (needsLogin) router.replace("/login"); }, [needsLogin, router]);
+
+  if (error) {
+    return (
+      <main className="home-shell">
+        <TopNav />
+        <section className="tasks-section">
+          <div className="workbench-alert"><span>{error}</span><a href="/projects" className="quiet-link">← 返回项目列表</a></div>
+        </section>
+      </main>
+    );
+  }
+
+  // 产物按名字分组显示版本序列（report v1 / v2 / v3）
+  const versionGroups = new Map<string, ProjectArtifact[]>();
+  for (const a of detail?.artifacts ?? []) {
+    const list = versionGroups.get(a.name) || [];
+    list.push(a);
+    versionGroups.set(a.name, list);
+  }
 
   return (
     <main className="home-shell">
       <TopNav />
       <section className="tasks-section">
-        {error ? (
-          <div className="workbench-alert"><span>{error}</span><a href="/projects" className="quiet-link">← 返回项目列表</a></div>
-        ) : !detail ? (
+        {!detail ? (
           <p className="empty-copy">加载中…</p>
         ) : (
           <>
@@ -47,37 +63,67 @@ export default function ProjectDetailPage() {
               <div>
                 <a href="/projects" className="back-link">← 项目列表</a>
                 <h1>{detail.project.name}</h1>
-                <p>持续沙盒 · 创建于 {new Date(detail.project.createdAt).toLocaleString("zh-CN")}</p>
+                <p>项目 workspace：多轮任务共享 · 创建于 {new Date(detail.project.created_at).toLocaleString("zh-CN")}</p>
               </div>
-              <a href="/workbench" className="new-task-btn">进入工作区 →</a>
+              <a href="/" className="new-task-btn">发起任务 →</a>
             </header>
 
-            {detail.latestRun && (
-              <div className={`final-state ${detail.latestRun.finalStatus}`}>
-                <small>上次任务 · {new Date(detail.latestRun.createdAt).toLocaleString("zh-CN")}</small>
-                <p>{detail.latestRun.task}</p>
-                <div>{detail.latestRun.finalStatus === "completed" ? "上次任务完成，输出文件可下载" : `上次任务失败：${detail.latestRun.reason || "未知原因"}`}</div>
+            <h3 className="detail-section-title">产物历史（版本化）</h3>
+            {!versionGroups.size ? (
+              <p className="empty-copy">还没有产物。关联到本项目的任务完成后，产物（含各版本）会出现在这里。</p>
+            ) : (
+              <div className="artifact-grid">
+                {[...versionGroups.entries()].map(([name, versions]) => (
+                  <div key={name} className="artifact-card" data-testid="artifact-history">
+                    <div className="artifact-icon">{versions[0].type.slice(0, 3).toUpperCase()}</div>
+                    <div>
+                      <strong>{name}.{versions[0].type === "markdown" ? "md" : versions[0].type}</strong>
+                      <small>共 {versions.length} 个版本 · {readableBytes(versions[versions.length - 1].size)}</small>
+                      <div className="version-row">
+                        {versions.map((v) => (
+                          <a key={v.id} href={`/artifacts/${v.id}`} className="version-chip" title={`${v.type} v${v.version} · ${new Date(v.createdAt).toLocaleString("zh-CN")}`}>
+                            v{v.version}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                    <a href={versions[versions.length - 1].downloadUrl} className="quiet-link">下载 ↓</a>
+                  </div>
+                ))}
               </div>
             )}
 
-            <div className="project-detail-grid">
-              <section className="detail-pane side shown">
-                <div className="panel-title"><div><span>INPUT</span><h2>输入文件</h2></div><b>{detail.input.length}</b></div>
-                {detail.input.map((file) => (
-                  <div className="file-row" key={file.name}><span>IN</span><div><strong>{file.name}</strong><small>{readableBytes(file.size_bytes)}</small></div></div>
+            <h3 className="detail-section-title">Workspace 文件</h3>
+            {!detail.files.length ? (
+              <p className="empty-copy">workspace 尚未创建（首个关联任务运行时生成）。</p>
+            ) : (
+              <div className="project-files">
+                {detail.files.map((f) => (
+                  <div key={f.path} className={`project-file-row ${f.dir ? "dir" : ""}`}>
+                    <span className="file-icon">{f.dir ? "📁" : "📄"}</span>
+                    <span className="file-path">{f.path}</span>
+                    <span className="file-meta">{f.dir ? "" : readableBytes(f.size)}</span>
+                  </div>
                 ))}
-                {!detail.input.length && <p className="empty-copy">还没有输入文件</p>}
-              </section>
-              <section className="detail-pane side shown">
-                <div className="panel-title"><div><span>OUTPUTS</span><h2>可下载输出</h2></div><b>{detail.outputs.length}</b></div>
-                {detail.outputs.map((file) => (
-                  <a className="file-row" key={file.name} href={`/api/workbench/projects/${encodeURIComponent(id)}/outputs/${encodeURIComponent(file.name)}`}>
-                    <span>OUT</span><div><strong>{file.name}</strong><small>{readableBytes(file.size_bytes)} · 下载</small></div>
+              </div>
+            )}
+
+            <h3 className="detail-section-title">任务</h3>
+            {!detail.tasks.length ? (
+              <p className="empty-copy">暂无任务。从首页发起任务时可选择本项目。</p>
+            ) : (
+              <div className="task-list">
+                {detail.tasks.map((t) => (
+                  <a key={t.id} href={`/tasks/${t.id}`} className="task-row">
+                    <div>
+                      <strong>{t.title}</strong>
+                      <small>{t.goal?.slice(0, 120)}</small>
+                    </div>
+                    <span className={`status-chip status-${t.status}`}>{t.status}</span>
                   </a>
                 ))}
-                {!detail.outputs.length && <p className="empty-copy">任务通过输出核验后显示在这里</p>}
-              </section>
-            </div>
+              </div>
+            )}
           </>
         )}
       </section>

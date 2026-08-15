@@ -204,6 +204,14 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const prepared = await adapter.prepare();
   if (!prepared.ok) throw new Error(`DEV_RUNTIME_UNAVAILABLE：${prepared.error}`);
 
+  // V1.4 WP37/40：Project Workspace 模式——同 project 任务共享 projects/{projectId} 根
+  // （多轮项目修改不重复上传原材料）；ENABLE_PROJECT_WS=0 可显式关闭（默认开）
+  const projectMode = Boolean(input.projectId && process.env.ENABLE_PROJECT_WS !== "0");
+  const workspaceId = projectMode ? `projects/${input.projectId}` : `tasks/${input.taskId}`;
+  const root = projectMode
+    ? path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "projects", input.projectId!)
+    : path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "tasks", input.taskId);
+
   // V1.3 WP3：AgentSession 一等化（可持久化运行实体；工具调用/状态/心跳落 PG）
   const { latestJobForTask } = await import("./job");
   const job = await latestJobForTask(input.taskId);
@@ -213,15 +221,9 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     userId: input.userId,
     runtime: runtimeId,
     model: process.env.AGENTSCOPE_MODEL || process.env.AGENT_MODEL || undefined,
-    workspaceId: `tasks/${input.taskId}`,
+    workspaceId,
   });
 
-  // 2. 独立 workspace（task 隔离；与 file-agent 容器共享挂载卷）
-  // V1.3 WP21：Project Workspace（ENABLE_PROJECT_WS=1 时同 project 任务共享 projects/{projectId} 根，
-  // 多轮项目修改不重复上传；adapter 共享卷映射需配套，默认关闭）
-  const root = input.projectId && process.env.ENABLE_PROJECT_WS === "1"
-    ? path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "projects", input.projectId)
-    : path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "tasks", input.taskId);
   const ws = new WorkspaceManager(root);
   ws.createWorkspace();
   // V1.3 WP15：workspace manifest（清单落盘；Planner/Agent 可读）
@@ -268,9 +270,11 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
 
   // 6. 执行（事件映射 task_events）；无产物时自动重试一次（强化交付指令）
   // 路径契约：file-agent 容器按 {conversationId}/{jobId} 定位 workspace
-  // → conversationId="tasks"、jobId={taskId} 与 WORKSPACES_ROOT/tasks/{taskId} 对齐（agent 才能看到 input/）
-  const jobId = input.taskId;
-  const conversationId = "tasks";
+  // → 普通任务 conversationId="tasks"、jobId={taskId} 对齐 WORKSPACES_ROOT/tasks/{taskId}
+  // → 项目任务（V1.4 WP37/40）conversationId="projects"、jobId={projectId} 对齐
+  //   WORKSPACES_ROOT/projects/{projectId}——同项目多轮任务共享同一 workspace（不重复上传原材料）
+  const jobId = projectMode ? input.projectId! : input.taskId;
+  const conversationId = projectMode ? "projects" : "tasks";
   const store = new JobStore();
   await input.emit("agent.started", { worker: "dev", title: "Claude Code 沙盒执行中" });
 
@@ -287,7 +291,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     JSON.stringify({
       runtimeId,
       adapterId: adapter.id,
-      workspaceId: input.taskId,
+      workspaceId,
       model: process.env.AGENT_MODEL || "deepseek-v4-flash",
       policy: policy
         ? {
@@ -332,7 +336,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
             content,
             // V1.3 WP30：provenance（job/runtime/model/来源）
             jobId: job?.id || null,
-            workspaceId: `tasks/${input.taskId}`,
+            workspaceId,
             runtime: runtimeId,
             model: policy?.executorModel || process.env.AGENT_MODEL || null,
           });

@@ -4,50 +4,44 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import TopNav from "../../components/TopNav";
 
-type ProjectItem = { id: string; name: string; updatedAt: string };
+type ProjectItem = {
+  id: string; name: string; description: string; taskCount: number; artifactCount: number; updatedAt: string;
+};
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [projects, setProjects] = useState<ProjectItem[] | null>(null);
   const [error, setError] = useState("");
-  const [needsLogin, setNeedsLogin] = useState(false);
+  const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/workbench/projects", { cache: "no-store" });
-    if (response.status === 401) { setNeedsLogin(true); return; }
-    if (!response.ok) { setError("项目列表加载失败"); return; }
-    const body = await response.json();
-    setProjects(Array.isArray(body.projects) ? body.projects : []);
-  }, []);
+    const response = await fetch("/api/projects", { cache: "no-store" });
+    if (response.status === 401) { router.replace("/login"); return; }
+    if (!response.ok) { setError("加载失败"); return; }
+    const data = await response.json();
+    setProjects(data.projects ?? []);
+  }, [router]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (needsLogin) router.replace("/login"); }, [needsLogin, router]);
 
-  async function create(event: React.FormEvent) {
-    event.preventDefault();
-    if (!name.trim() || busy) return;
-    setBusy(true);
-    setError("");
+  const create = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || creating) return;
+    setCreating(true);
     try {
-      const response = await fetch("/api/workbench/projects", {
+      const response = await fetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
-        cache: "no-store"
+        body: JSON.stringify({ name: trimmed }),
       });
-      if (response.status === 401) { setNeedsLogin(true); return; }
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "创建失败");
-      setName("");
-      router.push("/workbench");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "创建失败");
+      if (!response.ok) { setError("创建失败"); return; }
+      const data = await response.json();
+      router.push(`/projects/${data.project.id}`);
     } finally {
-      setBusy(false);
+      setCreating(false);
     }
-  }
+  };
 
   return (
     <main className="home-shell">
@@ -56,30 +50,39 @@ export default function ProjectsPage() {
         <header className="tasks-header">
           <div>
             <h1>项目</h1>
-            <p>持续保留的云端项目工作区（沙盒 + 文件 + 任务历史）。</p>
+            <p>同一项目的多轮任务共享 workspace——不重复上传原材料，产物版本可追溯。</p>
           </div>
         </header>
 
-        {error && <div className="workbench-alert"><span>{error}</span><button onClick={() => setError("")}>关闭</button></div>}
-
-        <form className="project-create" onSubmit={create}>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="新项目名称（如：我的 AI 产品）" />
-          <button disabled={busy || !name.trim()}>{busy ? "创建中…" : "创建项目"}</button>
-        </form>
-
-        <div className="task-list" style={{ marginTop: 16 }}>
-          {projects.length === 0 && <p className="empty-copy">创建第一个项目后，沙盒和文件会持续保留。</p>}
-          {projects.map((project) => (
-            <a key={project.id} href="/workbench" className="task-card">
-              <div className="task-card-head">
-                <span className="status-badge running">项目</span>
-                <small>更新于 {new Date(project.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small>
-              </div>
-              <h3>{project.name}</h3>
-              <p className="task-card-goal">进入工作区查看文件与任务历史 →</p>
-            </a>
-          ))}
+        <div className="project-create-row">
+          <input
+            className="project-name-input"
+            placeholder="新项目名称（如：大学物理课程材料）"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void create(); }}
+            data-testid="project-name-input"
+          />
+          <button className="new-task-btn" onClick={() => void create()} disabled={creating || !name.trim()} data-testid="project-create-btn">创建项目</button>
         </div>
+
+        {error && <div className="workbench-alert"><span>{error}</span></div>}
+
+        {projects === null ? (
+          <p className="empty-copy">加载中…</p>
+        ) : !projects.length ? (
+          <p className="empty-copy">还没有项目。创建一个项目后，任务可关联到项目并延续 workspace。</p>
+        ) : (
+          <div className="project-grid">
+            {projects.map((p) => (
+              <a key={p.id} href={`/projects/${p.id}`} className="project-card" data-testid="project-card">
+                <strong>{p.name}</strong>
+                {p.description && <small>{p.description}</small>}
+                <small>{p.taskCount} 个任务 · {p.artifactCount} 个产物 · 更新于 {new Date(p.updatedAt).toLocaleString("zh-CN")}</small>
+              </a>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
