@@ -98,14 +98,15 @@ export class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
   ): Promise<SandboxRunResult> {
     const client = this.client();
     try {
-      // 凭证（DeepSeek；与 workbench projectService 同构）
+      // 凭证：AgentScope 专用 base_url（AGENTSCOPE_BASE_URL）优先；
+      // 服务器 DEEPSEEK_BASE_URL 是 file-agent 的官方通道，key 不互通
       const apiKey = process.env.DEEPSEEK_API_KEY?.trim() || process.env.OPENCODE_GO_API_KEY?.trim();
       if (!apiKey) return { ok: false, error: "AGENTSCOPE_CREDENTIAL_MISSING：缺少 DeepSeek/OpenCode Go key" };
       const credential = await client.createCredential({
         type: "deepseek_credential",
         name: "Go AI Task Credential",
         api_key: apiKey,
-        base_url: process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com"
+        base_url: process.env.AGENTSCOPE_BASE_URL?.trim() || process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com"
       });
 
       const agent = await client.createAgent({
