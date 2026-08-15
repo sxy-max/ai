@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Mapping
+
+# 运行时诊断：模型调用/工具执行 traceback 输出到 stdout（容器日志）
+logging.basicConfig(level=os.environ.get("AGENTSCOPE_LOG", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,7 @@ def create_go_ai_app(settings: Settings):
     from agentscope.app.workspace_manager import (
         DockerWorkspaceManager,
         IsolationPolicy,
+        LocalWorkspaceManager,
     )
 
     redis_options = {
@@ -60,10 +65,17 @@ def create_go_ai_app(settings: Settings):
         "db": settings.redis_db,
         "password": settings.redis_password,
     }
-    app = create_app(
-        storage=RedisStorage(**redis_options),
-        message_bus=RedisMessageBus(**redis_options),
-        workspace_manager=DockerWorkspaceManager(
+    # AGENTSCOPE_SANDBOX=local 时用 LocalWorkspaceManager（宿主机目录沙盒，无嵌套容器）；
+    # 默认 Docker 沙盒（嵌套容器隔离）。Docker 模式若遇工具/schema 兼容问题可切换 local。
+    sandbox = os.environ.get("AGENTSCOPE_SANDBOX", "docker")
+    workspace_manager = (
+        LocalWorkspaceManager(
+            basedir=settings.workspace_root,
+            isolation=IsolationPolicy.PER_AGENT,
+            ttl=3600,
+        )
+        if sandbox == "local"
+        else DockerWorkspaceManager(
             basedir=settings.workspace_root,
             isolation=IsolationPolicy.PER_AGENT,
             base_image=settings.sandbox_image,
@@ -71,7 +83,12 @@ def create_go_ai_app(settings: Settings):
             env={},
             ttl=3600,
             sweep_interval=300,
-        ),
+        )
+    )
+    app = create_app(
+        storage=RedisStorage(**redis_options),
+        message_bus=RedisMessageBus(**redis_options),
+        workspace_manager=workspace_manager,
         download_secret=settings.download_secret,
         title="Go AI Agent Runtime",
     )
@@ -83,7 +100,7 @@ def create_go_ai_app(settings: Settings):
             "agentscopeVersion": agentscope_version,
             "storage": "redis",
             "messageBus": "redis",
-            "workspace": "docker",
+            "workspace": sandbox,
             "isolation": "per_agent",
         }
 
