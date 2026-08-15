@@ -13,7 +13,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 # 任务 Worker 编译进 standalone（全内联自包含：standalone trace 不含 ioredis/docx 等）
+# playwright 仅运行时可选（VISION_VERIFY 截图渲染），bundle 时 external（服务器无浏览器 chromium）
 RUN npx esbuild scripts/task-worker.ts --bundle --platform=node --format=cjs \
+    --external:playwright --external:@playwright/test --external:playwright-core --external:chromium-bidi \
     --outfile=.next/standalone/scripts/task-worker.cjs
 # 数据库迁移同样编译（服务器无 node，迁移在容器内执行）
 RUN npx esbuild scripts/db-migrate.ts --bundle --platform=node --format=cjs \
