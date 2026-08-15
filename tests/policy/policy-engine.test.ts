@@ -63,6 +63,17 @@ test("CSV 明确转换 → artifact + deterministic（简单任务不用 Agent�
   assert.equal(policy.runtime.runtime, "deterministic");
 });
 
+test("FORCE_AGENTSCOPE=1：工作区任务优先 AgentScope（benchmark/验收开关）", () => {
+  const old = process.env.FORCE_AGENTSCOPE;
+  process.env.FORCE_AGENTSCOPE = "1";
+  try {
+    const policy = planExecutionPolicy(input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "file_transform" }));
+    assert.equal(policy.runtime.runtime, "agentscope");
+  } finally {
+    if (old === undefined) delete process.env.FORCE_AGENTSCOPE; else process.env.FORCE_AGENTSCOPE = old;
+  }
+});
+
 test("AgentScope 不可用（未在 availableRuntimes）→ 不选它", () => {
   const policy = planExecutionPolicy({
     ...input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "workspace_agent" }),

@@ -51,7 +51,7 @@ export type ExecutionPolicyInput = {
   providerHealth?: { model: string; status: string }[];
 };
 
-/** 运行时偏好（按任务类型；deterministic-first）。 */
+/** 运行时偏好（按任务类型；deterministic-first）。FORCE_AGENTSCOPE=1 时工作区任务优先 AgentScope（benchmark/验收用）。 */
 function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId[]): RuntimeSelection {
   const has = (id: RuntimeId) => availableRuntimes.includes(id);
   const prefer = (primary: RuntimeId, fallbacks: RuntimeId[], reason: string): RuntimeSelection => ({
@@ -63,6 +63,9 @@ function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId
   // 简单产物（无工作区需求）→ deterministic；ZIP/图片/多文件 → Agent runtime
   if (!requirements.workspaceNeeded) {
     return prefer("deterministic", [], "no-workspace: deterministic generator");
+  }
+  if (process.env.FORCE_AGENTSCOPE === "1") {
+    return prefer("agentscope", ["claude-code"], "forced-agentscope (benchmark/acceptance)");
   }
   if (requirements.artifactKinds.some((k) => k === "zip")) {
     return prefer("claude-code", ["agentscope"], "zip-project: agent runtime required");
