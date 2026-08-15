@@ -32,6 +32,39 @@ import type { JobEvent, JobStatus } from "../job/events";
 import { validateTaskCompletion, type TaskCompletionContract } from "./completion";
 import type { ExecutionPolicy } from "../policy/executionPolicy";
 import { advanceLoop, INITIAL_LOOP, type AgentLoopState } from "../agent/loop";
+import { compareVisionContexts, feedbackInstruction } from "../vision/verification";
+import { renderHtmlToDataUrl } from "../vision/screenshot";
+
+/**
+ * WP12 视觉验证：读取参考 VisionContext（vision/*.json 第一个），若 output/ 有 HTML
+ * 产物则渲染截图 → describe → 结构化对比 → 返回修复反馈（失败时）。验证失败只注入
+ * feedback（一次 repair），不新增重试次数（复用 maxAttempts 上限，不无限）。
+ */
+async function visionVerificationFeedback(ws: WorkspaceManager): Promise<string> {
+  const fs = await import("node:fs");
+  try {
+    const vDir = ws.dirs.vision;
+    if (!fs.existsSync(vDir)) return "";
+    const jsons = fs.readdirSync(vDir).filter((n) => n.endsWith(".json"));
+    if (!jsons.length) return "";
+    const reference = JSON.parse(fs.readFileSync(path.join(vDir, jsons[0]), "utf8")) as Record<string, unknown>;
+    const outDir = ws.dirs.output;
+    if (!fs.existsSync(outDir)) return "";
+    const htmlFile = fs.readdirSync(outDir).find((n) => /\.html?$/i.test(n));
+    if (!htmlFile) return "";
+    const dataUrl = await renderHtmlToDataUrl(path.join(outDir, htmlFile));
+    if (!dataUrl) return "";
+    const { describeImageBase64, parseVisionFields } = await import("../vision");
+    const apiKey = process.env.OPENCODE_GO_API_KEY || "";
+    if (!apiKey) return "";
+    const desc = await describeImageBase64(dataUrl, apiKey);
+    if (!desc) return "";
+    const verdict = compareVisionContexts(reference, parseVisionFields(desc));
+    return verdict.pass ? "" : feedbackInstruction(verdict);
+  } catch {
+    return ""; // 验证失败不阻塞任务（降级）
+  }
+}
 
 /** workspace 状态摘要（修复指令用）：列出 output/working 文件与 input 文件。 */
 async function summarizeWorkspace(ws: WorkspaceManager): Promise<string> {
@@ -330,6 +363,8 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     await input.emit("repair.started", { attempt, maxAttempts });
     loop = advanceLoop(loop, { type: "validation_failed", reason: verdict.reason });
     loop = advanceLoop(loop, { type: "repair_started", attempt, maxAttempts });
+    // WP12：视觉验证反馈（VISION_VERIFY=1 且图片任务有 HTML 产物时注入）
+    const visionFeedback = process.env.VISION_VERIFY === "1" ? await visionVerificationFeedback(ws) : "";
     // 记录 attempt（含失败原因与修复指令；修复指令与 execute prompt 一致——已内联视觉摘要）
     const record = {
       attemptNumber: attempt,
@@ -337,7 +372,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
       repairInstruction: buildPrompt(`任务尚未完成。要求：${input.goal}
 当前缺失：${verdict.missing.map((m) => m.filenamePattern || m.kind || "非空文件").join("、") || "非空交付文件"}
 当前 Workspace 状态：${await summarizeWorkspace(ws)}
-请实际修改/生成文件，并把最终文件写入 output/ 目录（或工作区根目录）。不要只描述，必须产出真实文件。`),
+${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并把最终文件写入 output/ 目录（或工作区根目录）。不要只描述，必须产出真实文件。`),
       maxAttempts,
       timestamp: Date.now()
     };
