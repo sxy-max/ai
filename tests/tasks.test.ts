@@ -282,7 +282,7 @@ test("产物并发版本化：同名并发注册 version 唯一递增", async ()
 
 /** V1.4 WP31：规则规划器对文件类目标必须产出 artifact 步骤（PDF 曾落 general）。 */
 test("planFromRules：PDF/PPT/表格/网页目标 → artifact 步骤", () => {
-  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string }> };
+  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string; goal: string }> };
   const cases: Array<[string, string]> = [
     ["把这篇内容做成 PDF", "artifact"],
     ["做两页产品介绍 PPT", "artifact"],
@@ -298,7 +298,7 @@ test("planFromRules：PDF/PPT/表格/网页目标 → artifact 步骤", () => {
 });
 
 test("planFromRules：纯咨询类目标保持 general（不误伤）", () => {
-  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string }> };
+  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string; goal: string }> };
   const steps = planFromRules({ type: "artifact", goal: "解释一下什么是惯性" }, { files: [] });
   assert.ok(steps.some((s) => s.worker_type === "general"));
 });
