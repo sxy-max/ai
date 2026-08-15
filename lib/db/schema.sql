@@ -295,3 +295,48 @@ CREATE TABLE IF NOT EXISTS task_metrics (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_task_metrics_user ON task_metrics(user_id, created_at);
+
+-- ============ V1.3：Job State Machine（WP2）+ AgentSession（WP3）============
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL,
+  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  attempt INTEGER NOT NULL DEFAULT 1,
+  runtime TEXT,
+  model TEXT,
+  sandbox_id TEXT,
+  workspace_id TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  current_step TEXT,
+  checkpoint JSONB NOT NULL DEFAULT '{}',
+  failure_code TEXT,
+  lease_owner TEXT,
+  lease_until TIMESTAMPTZ,
+  started_at TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_task ON jobs(task_id, attempt);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, lease_until);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  task_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  runtime TEXT NOT NULL,
+  model TEXT,
+  workspace_id TEXT,
+  sandbox_id TEXT,
+  state TEXT NOT NULL DEFAULT 'created',
+  current_step TEXT,
+  tool_calls INTEGER NOT NULL DEFAULT 0,
+  context_version INTEGER NOT NULL DEFAULT 1,
+  heartbeat_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  closed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_job ON agent_sessions(job_id);

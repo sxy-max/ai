@@ -34,6 +34,7 @@ import type { ExecutionPolicy } from "../policy/executionPolicy";
 import { advanceLoop, INITIAL_LOOP, type AgentLoopState } from "../agent/loop";
 import { compareVisionContexts, feedbackInstruction } from "../vision/verification";
 import { renderHtmlToDataUrl } from "../vision/screenshot";
+import { createAgentSession, updateAgentSession } from "./job";
 
 /**
  * WP12 视觉验证：读取参考 VisionContext（vision/*.json 第一个），若 output/ 有 HTML
@@ -116,7 +117,7 @@ export type DevStepInput = {
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 
 /** 任务级 Job 阶段 → task 事件（保持 UI 可见性）；同时落盘 events.ndjson 与日志（WP4）。 */
-function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { ndjson: string; stdout: string; stderr: string }): void {
+function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { ndjson: string; stdout: string; stderr: string }, sessionId?: string): void {
   void (async () => {
     if (recorder) {
       try {
@@ -129,6 +130,16 @@ function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { 
         }
         if (event.type === "error") {
           await (await import("node:fs")).promises.appendFile(recorder.stderr, String(event.message) + "\n");
+        }
+      } catch {}
+    }
+    // V1.3 WP3：AgentSession 工具调用计数
+    if (sessionId && (event.type === "tool" || event.type === "done")) {
+      try {
+        const { updateAgentSession } = await import("./job");
+        await updateAgentSession(sessionId, event.type === "tool" ? { state: "running" } : { state: "completed" });
+        if (event.type === "tool") {
+          await queryToolCallIncrement(sessionId);
         }
       } catch {}
     }
@@ -160,6 +171,14 @@ function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { 
   })();
 }
 
+/** V1.3 WP3：会话工具调用计数（独立 SQL，避免循环 import）。 */
+async function queryToolCallIncrement(sessionId: string): Promise<void> {
+  try {
+    const { query } = await import("../db/pool");
+    await query("UPDATE agent_sessions SET tool_calls = tool_calls + 1, heartbeat_at = now() WHERE id = $1", [sessionId]);
+  } catch {}
+}
+
 export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRuntimeAdapter; workspacesRoot?: string; describeVision?: VisionDescribe; policy?: ExecutionPolicy }): Promise<{ summary: string }> {
   // 1. runtime 就绪（V1.2：按 ExecutionPolicy 选 runtime；默认 Claude Code；测试可注入 fake）
   //    AgentScope 仅在 policy 指定且其就绪检查通过时切换——不替换稳定 ClaudeCode 链
@@ -176,6 +195,18 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   }
   const prepared = await adapter.prepare();
   if (!prepared.ok) throw new Error(`DEV_RUNTIME_UNAVAILABLE：${prepared.error}`);
+
+  // V1.3 WP3：AgentSession 一等化（可持久化运行实体；工具调用/状态/心跳落 PG）
+  const { latestJobForTask } = await import("./job");
+  const job = await latestJobForTask(input.taskId);
+  const session = await createAgentSession({
+    jobId: job?.id || input.taskId,
+    taskId: input.taskId,
+    userId: input.userId,
+    runtime: runtimeId,
+    model: process.env.AGENTSCOPE_MODEL || process.env.AGENT_MODEL || undefined,
+    workspaceId: `tasks/${input.taskId}`,
+  });
 
   // 2. 独立 workspace（task 隔离；与 file-agent 容器共享挂载卷）
   const root = path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "tasks", input.taskId);
@@ -284,7 +315,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           return { id: artifact.id, kind: artifact.type as ArtifactKind, name: artifact.name, mime: artifact.mime, size: artifact.size, status: artifact.status as "ready", downloadUrl: `/api/artifacts/${artifact.id}` };
         }
       },
-      (event) => emitJobEvent(input.emit, event, recorder)
+      (event) => emitJobEvent(input.emit, event, recorder, session.id)
     );
     if (attempt === 0 && (outcome.status !== "done" || !outcome.result.ok)) {
       // 第一次执行失败 → 不自动重试（错误原因明确，留给用户重试）
@@ -391,10 +422,12 @@ ${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并
   }
 
   if (verdict.status !== "completed") {
+    await updateAgentSession(session.id, { state: "failed", closed_at: new Date().toISOString() });
     await input.emit("agent.failed", { error: `TASK_CONTRACT_RETRYABLE：${verdict.reason}`, code: "TASK_CONTRACT_RETRYABLE" });
     throw new Error(`TASK_CONTRACT_RETRYABLE：${verdict.reason}（已尝试 ${maxAttempts} 次）`);
   }
 
+  await updateAgentSession(session.id, { state: "completed", closed_at: new Date().toISOString() });
   await input.emit("agent.completed", { summary: "交付契约满足", artifactCount: (await listTaskArtifacts(input.taskId)).length });
 
   if (outcome.status !== "done" || !outcome.result.ok) {

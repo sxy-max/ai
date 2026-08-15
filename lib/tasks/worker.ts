@@ -31,6 +31,7 @@ import { listTaskArtifacts } from "./artifacts";
 import { validateTaskCompletion } from "./completion";
 import { listEnabledSkillsText } from "./skills";
 import { recordTaskMetrics } from "./metrics";
+import { createJob, heartbeatJob, updateJobStatus, writeJobCheckpoint, type JobCheckpoint } from "./job";
 
 export type WorkerOptions = {
   pollMs?: number;
@@ -149,6 +150,8 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     requirements: { requiredCapabilities: [], reasoningNeeded: "auto", visionNeeded: false, workspaceNeeded: false, toolsNeeded: false, artifactKinds: [], taskType: "chat" },
     availableRuntimes: runtimeAvailability(),
   });
+  // V1.3 WP2：Durable Job（执行阶段创建；catch 分支也可用）
+  let job: Awaited<ReturnType<typeof createJob>> | null = null;
 
   console.log(`[task-worker] 处理任务 ${taskId}（${task.title}）`);
   await emitTaskEvent(task.id, "task.started", { title: task.title });
@@ -156,6 +159,8 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
   // 租约心跳：执行期间定期续期，崩溃后由其他 worker 按 lease_expires 回收
   const heartbeat = setInterval(() => {
     void query("UPDATE tasks SET lease_expires = now() + make_interval(secs => $2) WHERE id = $1 AND status IN ('planning','running','preparing_workspace','validating','retrying')", [taskId, LEASE_SECONDS]).catch(() => {});
+    // V1.3 WP2：Job 级心跳续租
+    if (job) void heartbeatJob(job.id, LEASE_SECONDS * 1000, `worker-${process.pid}`).catch(() => {});
   }, LEASE_RENEW_INTERVAL_MS);
   heartbeat.unref?.();
 
@@ -187,6 +192,17 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       requirements: requirementsFromPlan(executionPlan),
       availableRuntimes: runtimeAvailability(),
     });
+    // V1.3 WP2：创建 Durable Job（Task=意图，Job=执行；重试时 attempt 递增）
+    job = await createJob({
+      taskId: task.id,
+      userId: task.user_id,
+      projectId: task.project_id,
+      attempt: 1,
+      runtime: policy.runtime.runtime,
+      workspaceId: `tasks/${task.id}`,
+    });
+    const jobOwner = `worker-${process.pid}`;
+    await query("UPDATE jobs SET lease_owner = $2, lease_until = now() + make_interval(secs => $3) WHERE id = $1", [job.id, jobOwner, LEASE_SECONDS]);
     let summaryParts: string[] = [];
 
     for (const step of steps) {
@@ -205,6 +221,9 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       await updateStepStatus(step.id, "running");
       await updateTaskStage(task.id, step.title, progressFor(taskId, steps.length, step.seq));
       await emitTaskEvent(taskId, "step.started", { seq: step.seq, title: step.title, worker: step.worker_type });
+      // V1.3 WP2：Job 状态 + checkpoint（断点续跑）
+      await updateJobStatus(job!.id, "running", { current_step: step.title });
+      await writeJobCheckpoint(job!.id, { stepSeq: step.seq, stepId: step.id, loopPhase: "act", attempt: job!.attempt });
 
       if (step.worker_type === "dev" && task.status === "running") {
         await updateTaskStatus(task.id, "preparing_workspace");
@@ -247,6 +266,8 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
         await emitTaskEvent(taskId, "agent.completed", { runId: run.id, worker: step.worker_type, summary });
         await emitTaskEvent(taskId, "step.completed", { seq: step.seq, title: step.title, summary });
         summaryParts.push(summary);
+        // V1.3 WP2：步骤级 checkpoint（崩溃后从已完成步骤继续）
+        await writeJobCheckpoint(job!.id, { stepSeq: step.seq, stepId: step.id, loopPhase: "finish", attempt: job!.attempt });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await completeAgentRun(run.id, "failed", message);
@@ -296,6 +317,8 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     await emitTaskEvent(taskId, "task.completed", { summary });
     await notifyTaskFinished(await getTaskOrThrow(task.id), true, summary);
     console.log(`[task-worker]   任务完成: ${summary.slice(0, 100)}`);
+    // V1.3 WP2：Job 终态
+    await updateJobStatus(job!.id, "completed");
     // V1.2 WP20：执行指标
     const artifacts = await listTaskArtifacts(task.id).catch(() => []);
     await recordTaskMetrics({
@@ -319,6 +342,8 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     // V1.2 WP20：失败指标（failure_code 来自 FailureTaxonomy）
     const { classifyFailure } = await import("../policy/failureTaxonomy");
     const classification = classifyFailure(message);
+    // V1.3 WP2：Job 失败终态（failure_code 分层）
+    await updateJobStatus(job!.id, "failed", { failure_code: classification.code }).catch(() => {});
     await recordTaskMetrics({
       taskId,
       userId: task.user_id,
