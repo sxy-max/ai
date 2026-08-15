@@ -119,3 +119,9 @@
 - **测试**：267/267（V1.1 基线 257 + dev-executor 图片任务 2 + reasoning-retry 8），typecheck PASS
 
 **Blocked（HARD BLOCKER #1：需用户提供密钥）**：T7 视觉问答 reasoning 截断与 DeepSeek 图片任务的**真实模型复测**需 OPENCODE_GO_API_KEY（本地 .env.local 仅 ACCESS/E2E_PASSWORD/DATABASE/REDIS）或 tencent-ai 服务器访问（本机无 ssh 配置/无远程 docker context/file-agent 容器）。系统侧行为已全部就绪且有测试；模型端验证待 key。
+
+## 2026-08-15 V1.1 续接轮 2（E2E 修复，1 commit，本地全绿）
+
+- **真实 bug 修复**（0b5e643）：`app/tasks/[id]/page.tsx` currentStage useMemo 在 `if (!detail) return` 之后调用 → "Rendered more hooks than during the previous render"，任务详情页打开即整页崩溃。已移到条件返回之前（Hooks 无条件调用）
+- **E2E 与产品对齐**：E2E 仍假设 `/` = 聊天页 + 文件任务聊天页内联 JobCard；产品已迁移（`/` = 任务启动器，文件任务 → POST /api/tasks → 详情页，PRD V1/V11 WP10）。goto 改 `/chat`；TEST16/17 重写为任务系统流程（聊天页创建任务 → 详情页渲染 + 事件流/步骤 Tab/取消；404 错误路径），守护 hooks 崩溃回归
+- **验证**：E2E 17/17 PASS（此前全挂 20.3s 超时——页面未加载），typecheck + build PASS
