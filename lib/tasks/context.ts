@@ -1,6 +1,7 @@
 /** 步骤执行上下文（Worker 执行器统一输入）。 */
 
 import type { TaskEventType } from "./types";
+import type { ExecutionPolicy } from "../policy/executionPolicy";
 
 export type TaskFileInfo = {
   id: string;
@@ -31,6 +32,8 @@ export type StepContext = {
   projectContext?: string;
   userMemory?: string;
   skills?: string;
+  /** V1.2：执行策略（由 worker 在规划阶段生成；dev 步骤据此选 runtime/预算）。 */
+  policy?: ExecutionPolicy;
   signal: AbortSignal;
   emit: (type: TaskEventType, payload?: Record<string, unknown>) => Promise<void>;
 };

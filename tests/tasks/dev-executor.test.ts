@@ -1,6 +1,8 @@
 /** Dev 执行器测试（WP3/WP4 接线）：fake Claude Code runtime → workspace 编排 → PG 产物注册。 */
 import { loadEnvFile } from "node:process";
 try { loadEnvFile(".env.local"); } catch {}
+// 测试隔离：删除模型 key，防止测试进程发起真实网络请求（慢/不可控）
+delete process.env.OPENCODE_GO_API_KEY; delete process.env.DEEPSEEK_API_KEY;
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -309,3 +311,4 @@ test("图片任务：始终不交付 → 有限重试（3 次）→ 明确失败
     assert.match(record.repairInstruction, /当前 Workspace 状态/);
   }
 });
+

@@ -9,6 +9,8 @@ import { generatePlan } from "../leader/planner";
 import { executeStep } from "./executor";
 import { notifyTaskFinished } from "./notify";
 import { WorkspaceManager } from "../workspace/service";
+import { requirementsFromPlan } from "../policy/capabilities";
+import { planExecutionPolicy, type ExecutionPolicy } from "../policy/executionPolicy";
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 import {
@@ -38,6 +40,14 @@ const LEASE_SECONDS = 90;
 const LEASE_RENEW_INTERVAL_MS = 30_000;
 const WORKSPACE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 每 6 小时
 const WORKSPACE_TTL_MS = 7 * 24 * 60 * 60 * 1000;          // workspace TTL 7 天
+
+/** 可用运行时（V1.2 WP7）：deterministic 恒可用；claude-code 由 AGENT_URL 判定；agentscope 由 AGENTSCOPE_URL 判定。 */
+export function runtimeAvailability(): Array<"deterministic" | "claude-code" | "agentscope"> {
+  const available: Array<"deterministic" | "claude-code" | "agentscope"> = ["deterministic"];
+  if (process.env.AGENT_URL?.trim() || process.env.AGENTSCOPE_URL?.trim()) available.push("claude-code");
+  if (process.env.AGENTSCOPE_URL?.trim()) available.push("agentscope");
+  return available;
+}
 
 /** 启动任务 Worker 循环（阻塞；abort 时退出）。 */
 export async function runTaskWorkerLoop(options: WorkerOptions = {}): Promise<void> {
@@ -163,6 +173,12 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     // ===== 执行阶段 =====
     const steps = await getSteps(task.id);
     const context = await buildPlanContext(task);
+    // V1.2 WP3/WP7：生成统一执行策略（runtime/模型角色/预算/工具）；dev 步骤据此选 runtime
+    const executionPlan = buildExecutionPlan(task, context.files);
+    const policy: ExecutionPolicy = planExecutionPolicy({
+      requirements: requirementsFromPlan(executionPlan),
+      availableRuntimes: runtimeAvailability(),
+    });
     let summaryParts: string[] = [];
 
     for (const step of steps) {
@@ -207,6 +223,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
           projectContext: context.projectContext,
           userMemory: context.userMemory,
           skills: context.skills,
+          policy,
           signal,
           emit: (type: TaskEventType, payload: Record<string, unknown> = {}) => emitTaskEvent(task.id, type, payload)
         });

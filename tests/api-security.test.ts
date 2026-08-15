@@ -1,6 +1,8 @@
 /** 安全与并发测试：artifact 归属越权、并发领取唯一性。 */
 import { loadEnvFile } from "node:process";
 try { loadEnvFile(".env.local"); } catch {}
+// 测试隔离：删除模型 key，防止测试进程发起真实网络请求（慢/不可控）
+delete process.env.OPENCODE_GO_API_KEY; delete process.env.DEEPSEEK_API_KEY;
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -99,3 +101,4 @@ test("并发领取：5 个任务同时 claim 无重复（FOR UPDATE SKIP LOCKED�
   const extra = await query<{ id: string }>(claim);
   assert.equal(extra.rows.length, 0);
 });
+

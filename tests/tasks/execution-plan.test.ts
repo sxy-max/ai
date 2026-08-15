@@ -1,6 +1,8 @@
 /** WP2 测试：TaskExecutionPlan 映射 + /api/chat 任务型防线。 */
 import { loadEnvFile } from "node:process";
 try { loadEnvFile(".env.local"); } catch {}
+// 测试隔离：删除模型 key，防止测试进程发起真实网络请求（慢/不可控）
+delete process.env.OPENCODE_GO_API_KEY; delete process.env.DEEPSEEK_API_KEY;
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { buildExecutionPlan } from "../../lib/tasks/executionPlan";
@@ -80,3 +82,4 @@ test("chat 防线：普通问答不受影响（放行）", async () => {
   // 防线放行（后续因 mock model token 校验失败 → 403 也证明没被 422 拦截；这里断言非 422）
   assert.notEqual(res.status, 422);
 });
+

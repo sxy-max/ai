@@ -18,6 +18,7 @@
 import path from "node:path";
 import { artifactService } from "../artifacts/service";
 import { GoFileAgentAdapter } from "../sandbox/dockerClaudeCode";
+import { AgentScopeRuntimeAdapter } from "../sandbox/agentscopeRuntime";
 import { runAgentJob, JobRunOutcome } from "../agent/runner";
 import { JobStore } from "../agent/jobStore";
 import { WorkspaceManager } from "../workspace/service";
@@ -29,6 +30,8 @@ import type { ArtifactKind } from "../artifacts/types";
 import type { TaskEventType } from "./types";
 import type { JobEvent, JobStatus } from "../job/events";
 import { validateTaskCompletion, type TaskCompletionContract } from "./completion";
+import type { ExecutionPolicy } from "../policy/executionPolicy";
+import { advanceLoop, INITIAL_LOOP, type AgentLoopState } from "../agent/loop";
 
 /** workspace 状态摘要（修复指令用）：列出 output/working 文件与 input 文件。 */
 async function summarizeWorkspace(ws: WorkspaceManager): Promise<string> {
@@ -122,9 +125,20 @@ function emitJobEvent(emit: DevStepInput["emit"], event: JobEvent, recorder?: { 
   })();
 }
 
-export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRuntimeAdapter; workspacesRoot?: string; describeVision?: VisionDescribe }): Promise<{ summary: string }> {
-  // 1. runtime 就绪（Claude Code + DeepSeek V4 Flash 容器；测试可注入 fake）
-  const adapter = deps?.adapter || new GoFileAgentAdapter();
+export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRuntimeAdapter; workspacesRoot?: string; describeVision?: VisionDescribe; policy?: ExecutionPolicy }): Promise<{ summary: string }> {
+  // 1. runtime 就绪（V1.2：按 ExecutionPolicy 选 runtime；默认 Claude Code；测试可注入 fake）
+  //    AgentScope 仅在 policy 指定且其就绪检查通过时切换——不替换稳定 ClaudeCode 链
+  const policy = deps?.policy;
+  let adapter = deps?.adapter;
+  let runtimeId = policy?.runtime?.runtime || "claude-code";
+  if (!adapter) {
+    if (runtimeId === "agentscope" && process.env.AGENTSCOPE_URL?.trim()) {
+      adapter = new AgentScopeRuntimeAdapter();
+    } else {
+      adapter = new GoFileAgentAdapter();
+      runtimeId = "claude-code";
+    }
+  }
   const prepared = await adapter.prepare();
   if (!prepared.ok) throw new Error(`DEV_RUNTIME_UNAVAILABLE：${prepared.error}`);
 
@@ -183,9 +197,27 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const stdoutFile = path.join(logsDir, "stdout.log");
   const stderrFile = path.join(logsDir, "stderr.log");
   const recorder = { ndjson: eventsFile, stdout: stdoutFile, stderr: stderrFile };
+  // V1.2：runtime.json 记录运行时、执行策略与预算轨迹（BudgetTrace 落盘）
   await (await import("node:fs")).promises.writeFile(
     path.join(agentDir, "runtime.json"),
-    JSON.stringify({ runtimeId: adapter.id, workspaceId: input.taskId, model: process.env.AGENT_MODEL || "deepseek-v4-flash", startedAt: Date.now() }, null, 2)
+    JSON.stringify({
+      runtimeId,
+      adapterId: adapter.id,
+      workspaceId: input.taskId,
+      model: process.env.AGENT_MODEL || "deepseek-v4-flash",
+      policy: policy
+        ? {
+            executor: policy.executor,
+            modelRole: policy.modelRole,
+            runtime: policy.runtime.runtime,
+            budgetTier: policy.budget.tier,
+            maxOutputTokens: policy.budget.maxOutputTokens,
+            tools: policy.tools,
+            retry: policy.retry,
+          }
+        : null,
+      startedAt: Date.now()
+    }, null, 2)
   );
 
   const runOnce = async (prompt: string, attempt: number): Promise<JobRunOutcome> => {
@@ -288,7 +320,16 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   };
   let verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract, formatValidator);
 
+  // WP10：统一 AgentLoop 状态机（plan→act→observe→validate→repair→finish），事件进 task_events
+  let loop: AgentLoopState = { ...INITIAL_LOOP, maxAttempts };
+  await input.emit("agent.started", { worker: "dev", runtime: runtimeId });
+
   for (let attempt = 1; attempt <= maxAttempts && verdict.status !== "completed"; attempt++) {
+    // 显式 validation_failed + repair_started（UI 只认识 AgentEvent；progress 保留兼容）
+    await input.emit("validation.failed", { reason: verdict.reason, missing: verdict.missing.map((m) => m.filenamePattern || m.kind || "file") });
+    await input.emit("repair.started", { attempt, maxAttempts });
+    loop = advanceLoop(loop, { type: "validation_failed", reason: verdict.reason });
+    loop = advanceLoop(loop, { type: "repair_started", attempt, maxAttempts });
     // 记录 attempt（含失败原因与修复指令；修复指令与 execute prompt 一致——已内联视觉摘要）
     const record = {
       attemptNumber: attempt,
@@ -312,8 +353,11 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   }
 
   if (verdict.status !== "completed") {
+    await input.emit("agent.failed", { error: `TASK_CONTRACT_RETRYABLE：${verdict.reason}`, code: "TASK_CONTRACT_RETRYABLE" });
     throw new Error(`TASK_CONTRACT_RETRYABLE：${verdict.reason}（已尝试 ${maxAttempts} 次）`);
   }
+
+  await input.emit("agent.completed", { summary: "交付契约满足", artifactCount: (await listTaskArtifacts(input.taskId)).length });
 
   if (outcome.status !== "done" || !outcome.result.ok) {
     const error = outcome.result.error || "DEV_RUN_FAILED";

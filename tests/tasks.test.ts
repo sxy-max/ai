@@ -1,6 +1,8 @@
 /** Task 系统测试（需要本地 PostgreSQL：npm run db:migrate 后执行）。 */
 import { loadEnvFile } from "node:process";
 try { loadEnvFile(".env.local"); } catch {}
+// 测试隔离：删除模型 key，防止测试进程发起真实网络请求（慢/不可控）
+delete process.env.OPENCODE_GO_API_KEY; delete process.env.DEEPSEEK_API_KEY;
 import os from "node:os";
 import path from "node:path";
 import { before, after, test } from "node:test";
@@ -265,3 +267,4 @@ test("产物并发版本化：同名并发注册 version 唯一递增", async ()
   const versions = results.map((r) => r.version).sort((a, b) => a - b);
   assert.deepEqual(versions, [1, 2, 3, 4, 5]);
 });
+

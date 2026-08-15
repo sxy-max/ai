@@ -1,6 +1,8 @@
 /** Task API 集成测试：直接调用 Next.js 路由处理器 + 真实 PG（认证/归属/SSE）。 */
 import { loadEnvFile } from "node:process";
 try { loadEnvFile(".env.local"); } catch {}
+// 测试隔离：删除模型 key，防止测试进程发起真实网络请求（慢/不可控）
+delete process.env.OPENCODE_GO_API_KEY; delete process.env.DEEPSEEK_API_KEY;
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createUser } from "../lib/db/users";
@@ -184,3 +186,4 @@ test("SSE /api/tasks/:id/events：先发 retry 与既有事件；他人任务 40
   }), { params: Promise.resolve({ id }) });
   assert.equal(forbidden.status, 404);
 });
+

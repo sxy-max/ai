@@ -1,6 +1,8 @@
 /** 多用户认证数据层测试（需要本地 PostgreSQL：npm run db:migrate 后执行）。 */
 import { loadEnvFile } from "node:process";
 try { loadEnvFile(".env.local"); } catch { /* 无本地 env 时忽略 */ }
+// 测试隔离：删除模型 key，防止测试进程发起真实网络请求（慢/不可控）
+delete process.env.OPENCODE_GO_API_KEY; delete process.env.DEEPSEEK_API_KEY;
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createUser, findUserByEmail, hashPassword, userCount, verifyPassword } from "../lib/db/users";
@@ -57,3 +59,4 @@ test("userCount 可用", async () => {
   assert.equal(typeof count, "number");
   assert.ok(count >= 1);
 });
+

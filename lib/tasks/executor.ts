@@ -201,7 +201,8 @@ async function runArtifact(ctx: StepContext): Promise<StepResult> {
 // ============ Dev Worker ============
 
 async function runDev(ctx: StepContext): Promise<StepResult> {
-  // Dev Worker = Claude Code Runtime（go-ai-file-agent 容器，Claude Code + DeepSeek V4 Flash）
+  // Dev Worker = Agent Runtime（V1.2：由 ExecutionPolicy 决定 Claude Code / AgentScope；
+  // 默认 Claude Code Runtime（go-ai-file-agent 容器，Claude Code + DeepSeek V4 Flash））
   // 就绪检查在 runDevStep 内（prepare），不可用时抛明确错误
   const files = await taskFiles(ctx.task.id);
   return runDevStep({
@@ -213,7 +214,7 @@ async function runDev(ctx: StepContext): Promise<StepResult> {
     files: files.map((f) => ({ id: String(f.id), filename: String(f.filename) })),
     signal: ctx.signal,
     emit: ctx.emit
-  });
+  }, { policy: ctx.policy });
 }
 
 // ============ 工具 ============
