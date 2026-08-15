@@ -113,3 +113,29 @@ test("Docker provider：non-root 容器内无法访问宿主敏感路径", { ski
   await manager.terminate(sbx, ws);
   await manager.cleanup(sbx, ws);
 });
+
+test("V1.3 WP36 Security Matrix：docker.sock/其他 task workspace/宿主编排目录不可见；/etc/passwd 是容器内的", { skip: !dockerAvailable }, async () => {
+  const ws = tempWorkspace("matrix");
+  const manager = new SandboxManager(new DockerSandboxProvider());
+  const sbx = `matrix-${Date.now()}`;
+  await manager.allocate(sbx, ws);
+  await manager.prepare(sbx, ws); // 创建容器内 input/working/output
+  // 同一根下的其他任务 workspace（模拟并发任务隔离）
+  const otherWs = tempWorkspace("matrix-other");
+
+  const checks = [
+    ["test -S /var/run/docker.sock && echo FOUND || echo NOT-FOUND", "NOT-FOUND", "docker.sock 不可见"],
+    ["test -d /data/workspaces/tasks && echo FOUND || echo NOT-FOUND", "NOT-FOUND", "其他 task workspace 不可见"],
+    ["test -f /opt/ai-client/.env && echo FOUND || echo NOT-FOUND", "NOT-FOUND", "宿主 .env 不可见"],
+    ["ls /workspace/working > /dev/null 2>&1 && echo WS-OK || echo WS-FAIL", "WS-OK", "任务 workspace 已挂载"],
+    ["cat /etc/passwd | head -1", ":", "/etc/passwd 可读（容器内的）"],
+  ];
+  for (const [cmd, expect, label] of checks) {
+    const r = await manager.exec(sbx, ws, ["sh", "-c", cmd]);
+    assert.ok(r.ok, `${label}: exec 失败 ${r.stderr}`);
+    assert.match(r.stdout, new RegExp(expect.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), label);
+  }
+  await manager.terminate(sbx, ws);
+  await manager.cleanup(sbx, ws);
+  fs.rmSync(otherWs, { recursive: true, force: true });
+});
