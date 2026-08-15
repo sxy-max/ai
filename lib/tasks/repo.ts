@@ -204,7 +204,8 @@ export async function continueTask(taskId: string, newGoal: string) {
   await withTransaction(async (client) => {
     await client.query(
       `UPDATE tasks SET status = 'queued', goal = $2, plan = '[]'::jsonb, result_summary = '', error = '',
-       progress = 0, current_stage = '', worker_id = '', lease_expires = NULL, completed_at = NULL, updated_at = now()
+       progress = 0, current_stage = '', worker_id = '', lease_expires = NULL, completed_at = NULL, updated_at = now(),
+       parent_task_id = CASE WHEN parent_task_id IS NULL THEN id ELSE parent_task_id END
        WHERE id = $1`,
       [taskId, `${task.goal}
 

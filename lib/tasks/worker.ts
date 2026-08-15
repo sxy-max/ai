@@ -355,18 +355,41 @@ function progressFor(taskId: string, total: number, currentSeq: number): number 
 }
 
 async function buildPlanContext(task: TaskRow) {
-  const [memory, projectMemory, skills, files] = await Promise.all([
+  const [memory, projectMemory, skills, files, projectArtifacts] = await Promise.all([
     listUserMemory(task.user_id),
     task.project_id ? listProjectMemory(task.project_id) : Promise.resolve([]),
     listEnabledSkillsText(task.user_id),
-    taskFiles(task.id)
+    taskFiles(task.id),
+    task.project_id ? listProjectArtifactSummary(task.project_id) : Promise.resolve(""),
   ]);
+  const projectContext = [
+    projectMemory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
+    projectArtifacts,
+  ].filter(Boolean).join("\n\n");
   return {
     files: files.map((file) => ({ filename: String(file.filename) })),
-    projectContext: projectMemory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
+    projectContext,
     userMemory: memory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
     skills
   };
+}
+
+/** WP26：项目历史产物摘要（多轮任务知道上轮交付了什么；供 planner/agent 上下文）。 */
+export async function listProjectArtifactSummary(projectId: string): Promise<string> {
+  try {
+    const rows = await query<{ name: string; version: number; type: string }>(
+      `SELECT a.name, a.version, a.type FROM artifacts a
+       JOIN tasks t ON t.id = a.task_id
+       WHERE t.project_id = $1 AND a.status = 'ready'
+       ORDER BY a.created_at DESC LIMIT 10`,
+      [projectId]
+    );
+    if (!rows.rows.length) return "";
+    const lines = rows.rows.map((r) => `- ${r.name} v${r.version}（${r.type}）`);
+    return `项目历史交付产物：\n${lines.join("\n")}`;
+  } catch {
+    return "";
+  }
 }
 
 async function getTaskOrThrow(taskId: string): Promise<TaskRow> {
