@@ -4,6 +4,8 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
+# 系统 chromium 已装（runner 阶段）；跳过 playwright 浏览器下载（省镜像）
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci
 
 FROM node:24-alpine AS build
