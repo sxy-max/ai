@@ -60,7 +60,7 @@ export async function renderPptxFromSpec(spec: PresentationSpec): Promise<Buffer
   // 标题信息保留在 pptx.title / slide.notes；空 spec 兜底为单页标题页
   const slides: PresentationSpec["slides"] = spec.slides.length
     ? spec.slides
-    : ([{ title: spec.title || "演示文稿", objective: "", sections: [] as string[], equations: [] as string[], layout: "title-content" }] as PresentationSpec["slides"]);
+    : ([{ title: spec.title || "演示文稿", sections: [] as string[], equations: [] as string[], layout: "title-content" }] as PresentationSpec["slides"]);
   for (const slide of slides) {
     const s = pptx.addSlide();
     s.background = { color: theme.slideBackground };
