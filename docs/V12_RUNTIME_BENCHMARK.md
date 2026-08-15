@@ -19,21 +19,24 @@
 所有任务：产物注册 PG（版本化）、runtime.json.adapterId=agentscope（ExecutionPolicy 正确路由）、
 事件经统一 AgentEvent 进 task_events。
 
-## 服务器（真实模型通道，WP33 云端执行）
+## 服务器（真实模型通道，WP33 云端执行完成）
 
-待云端部署后补齐（ClaudeCodeRuntime 需 go-ai-file-agent 容器；AgentScope 用真实 deepseek credential）：
+部署：ai-client:v1.2（web+worker）+ AgentScope 生产栈（agent-runtime + sandbox-daemon；AGENTSCOPE_SANDBOX=local 模式，Docker 沙盒已就绪待工具兼容验证）
 
 | 任务 | ClaudeCodeRuntime | AgentScopeRuntime |
 |------|-------------------|-------------------|
-| MD 修改 | 待测 | 待测 |
-| CSV 修改 | 待测 | 待测 |
-| HTML 修改 | 待测 | 待测 |
-| ZIP 多文件 | 待测 | 待测 |
-| 图片+HTML | 待测 | 待测 |
+| MD 修改 | ✅ E2（note v1 产物） | ✅ AS-MD（note v1，真实 kimi-k3） |
+| CSV 修改 | ✅ E3（去重排序内容验证） | — |
+| HTML 修改 | ✅ E6（index v1） | ✅ AS-IMG-HTML（index v1，含 vision） |
+| ZIP 多文件 | ✅ E7（site v2） | — |
+| 图片+HTML | ✅ E6 | ✅ AS-IMG-HTML（WP13 云端复测 PASS） |
+| PPTX | ✅ E4（60856 bytes 合法容器） | —（deterministic） |
+| continuation | ✅ E9（v2 版本化） | — |
+| artifact 下载 | ✅ E10 | — |
 
-记录字段：time、attempts、tool calls、artifact validity、token usage、失败模式。
+关键配置（云端）：AGENTSCOPE_MODEL=kimi-k3（工具调用能力强；deepseek-v4-pro 推理模型在 AgentScope 工具循环不调工具——记录）、AGENTSCOPE_BASE_URL=opencode 通道、FORCE_AGENTSCOPE 验收开关（生产默认 claude-code 优先）、预算 tool_loop（每 step 2048）。
 
-## 初版 RuntimePolicy 结论（本地数据）
+## 初版 RuntimePolicy 结论（本地+云端数据）
 
 - 简单文件任务（MD/CSV）：两个 runtime 都适用；AgentScope 本地闭环 300-400ms（mock 模型下）。
 - 图片+HTML：需要 vision 预处理（与 runtime 无关，devExecutor 层）；AgentScope 支持（工具循环 Read/Write）。
