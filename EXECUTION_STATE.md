@@ -138,6 +138,31 @@
 - 系统行为最终结论：截断→判定→最多一次重试→提高预算→成功/明确提示，不无限循环（8 单测覆盖）
 - **DeepSeek 图片任务真实复测**：仍需服务器（本地无 file-agent 容器）；模型侧根因已实证 + 视觉摘要内联修复已上线代码，待服务器回归
 
+## 2026-08-15 V1.3 完成（WP1-WP42，tag go-ai-v1.3-production-agent-runtime）
+
+**V1.3 目标**：复杂任务在独立、安全、持久、可恢复的云端 Agent Sandbox 中连续执行至真实结果。
+
+**核心交付**：
+- **Job/AgentSession 一等化**（WP2-3）：jobs 表（13 状态机 + checkpoint + lease）+ agent_sessions 表（工具计数/心跳）；Task=意图、Job=执行、attempt 序列
+- **SandboxManager + DockerSandboxProvider**（WP4-5）：per-task 受限容器（non-root/--network none/--read-only/memory/cpus/pids/cap-drop）；LocalSandbox 开发回退；实测宿主敏感路径不可见
+- **RuntimeToolProtocol**（WP7）：ToolCall/ToolResult/ToolError 统一 + sandboxManagerExecutor
+- **DeepSeek 工具调用根因**（WP8-9）：三模型 opencode 通道均产 OpenAI tool_calls；V1.2"pro 不调工具/Docker 不兼容"= dind 初始化竞态；Docker 沙盒生产激活（pro 实测全通）
+- **Planner/Executor 模型分离**（WP10）：policy.plannerModel/executorModel/visionModel
+- **Durable loop + Job 恢复**（WP11-13）：步骤 checkpoint + job lease 循环认领
+- **Manifest/Snapshot/Ingestion/ZIP**（WP14-17）：workspace manifest（sha256/role）、版本快照 + repair 前回滚、FileIngestionPipeline、zip slip 防护
+- **Cancel 真终止 + Continue lineage**（WP18-21）：per-task abort（执行中 cancel 立即中断）+ parent_artifact_id/workspace_parent_version + ENABLE_PROJECT_WS
+- **Provider Health 动态化**（WP22-24）：后台 probe（10min/Redis）+ /api/models healthStatus（luna region_unavailable/grok disabled 实测）
+- **Resource/镜像**（WP25-28）：ResourcePolicy + go-ai-sandbox:v1 + build-smoke.sh
+- **Provenance/UI/Failure UX**（WP29-33）：artifact provenance + 详情页 Job 信息/Files tab/失败语义化
+- **安全矩阵**（WP34-36）：真实容器探测全过
+- **Long Horizon 实测**（WP38）：ZIP 项目+参考图+5 要求 → 257s 多步执行 → site v2 ZIP；中途 worker 重启任务继续
+
+**验证**：本地 379/379 + typecheck + build + E2E 17/17；云端：长任务 PASS + 执行中 cancel PASS + provider 状态 PASS + V1.2 全套回归
+
+**部署**：ai-client:v1.3（web+worker）+ migrate v1.5 + AgentScope Docker 沙盒（production）；rollback=V1.2 镜像（latest e13115d1634d）+ 源码备份 /opt/ai-client-backup-v11
+
+**已知问题**：AgentScope directories 端点宿主枚举（upstream 缺口，Docker 沙盒下仅容器内可见）；ENABLE_PROJECT_WS 需 adapter 映射配套（默认关）；服务器 build-smoke 进行中
+
 ## 2026-08-15 V1.2 完成（WP1-WP35，tag go-ai-v1.2-runtime-orchestration，云端已部署）
 
 **V1.2 目标**：系统自动选择大脑/Runtime/工具/推理预算/执行策略（Native Agent Runtime & Model Orchestration）。
