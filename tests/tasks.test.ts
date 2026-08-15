@@ -279,3 +279,26 @@ test("产物并发版本化：同名并发注册 version 唯一递增", async ()
   assert.deepEqual(versions, [1, 2, 3, 4, 5]);
 });
 
+
+/** V1.4 WP31：规则规划器对文件类目标必须产出 artifact 步骤（PDF 曾落 general）。 */
+test("planFromRules：PDF/PPT/表格/网页目标 → artifact 步骤", () => {
+  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string }> };
+  const cases: Array<[string, string]> = [
+    ["把这篇内容做成 PDF", "artifact"],
+    ["做两页产品介绍 PPT", "artifact"],
+    ["把这个 CSV 转成 Excel", "artifact"],
+    ["整理成表格", "artifact"],
+    ["做一个介绍页面网站", "artifact"],
+  ];
+  for (const [goal, expected] of cases) {
+    const steps = planFromRules({ type: "artifact", goal }, { files: [] });
+    assert.ok(steps.some((s) => s.worker_type === expected), `goal "${goal}" 应含 ${expected} 步骤（got ${steps.map((s) => s.worker_type)}）`);
+    assert.ok(!steps.some((s) => s.worker_type === "general" && s.goal.includes("处理任务")), `goal "${goal}" 不应落 general 兜底`);
+  }
+});
+
+test("planFromRules：纯咨询类目标保持 general（不误伤）", () => {
+  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string }> };
+  const steps = planFromRules({ type: "artifact", goal: "解释一下什么是惯性" }, { files: [] });
+  assert.ok(steps.some((s) => s.worker_type === "general"));
+});

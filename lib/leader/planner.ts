@@ -137,6 +137,11 @@ export function planFromRules(task: TaskRow, context: PlanContext): PlanStep[] {
     steps.push({ seq: steps.length + 1, worker_type: "artifact", title: "生成文档", goal: `根据已有材料生成 markdown 文档：${task.goal}` });
   }
 
+  // 4b. PDF（V1.4：规则规划器缺 PDF 分支曾导致 PDF 任务落 general → LLM 拒绝式回答）
+  if (want(["pdf", "做成 pdf", "转成 pdf", "导出 pdf", "排版成 pdf"])) {
+    steps.push({ seq: steps.length + 1, worker_type: "artifact", title: "生成 PDF 文件", goal: `把内容排版生成真实 PDF 文件：${task.goal}` });
+  }
+
   // 5. 表格（按目标细分：csv 请求 → csv，其余 → xlsx）
   if (want(["表格", "excel", "xlsx", "csv", "数据表", "电子表格", "整理成表"])) {
     const wantsCsv = /csv/.test(goal);

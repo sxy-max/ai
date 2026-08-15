@@ -41,7 +41,8 @@ async function runGeneral(ctx: StepContext): Promise<StepResult> {
       {
         role: "system",
         content: `你是云端 AI 工作系统的 General Worker。用中文给出直接、结构化的回答。
-${ctx.userMemory ? `用户偏好：${ctx.userMemory}\n` : ""}${ctx.skills ? `技能约束：${ctx.skills}\n` : ""}已知事实必须引用来源；搜索不到的不要编造，明确说“无法确认”。`
+${ctx.userMemory ? `用户偏好：${ctx.userMemory}\n` : ""}${ctx.skills ? `技能约束：${ctx.skills}\n` : ""}已知事实必须引用来源；搜索不到的不要编造，明确说“无法确认”。
+注意：本系统可生成真实文件（Word/PDF/PPT/Excel/网页等）。若用户要求文件而本步骤确实需要产文件，明确说明需要文件生成步骤；不得回答“作为 AI 我不能生成文件”“请复制到…”。`
       },
       { role: "user", content: `${ctx.step.goal}\n\n${fileContext || "（无输入文件）"}` }
     ],
