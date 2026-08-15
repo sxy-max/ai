@@ -35,6 +35,8 @@ import { advanceLoop, INITIAL_LOOP, type AgentLoopState } from "../agent/loop";
 import { compareVisionContexts, feedbackInstruction } from "../vision/verification";
 import { renderHtmlToDataUrl } from "../vision/screenshot";
 import { createAgentSession, updateAgentSession } from "./job";
+import { buildWorkspaceManifest, writeWorkspaceManifest } from "../workspace/manifest";
+import { createWorkspaceSnapshot, restoreWorkspaceSnapshot, listWorkspaceSnapshots } from "../workspace/snapshot";
 
 /**
  * WP12 视觉验证：读取参考 VisionContext（vision/*.json 第一个），若 output/ 有 HTML
@@ -212,6 +214,8 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const root = path.join(deps?.workspacesRoot || WORKSPACES_ROOT, "tasks", input.taskId);
   const ws = new WorkspaceManager(root);
   ws.createWorkspace();
+  // V1.3 WP15：workspace manifest（清单落盘；Planner/Agent 可读）
+  writeWorkspaceManifest(root, buildWorkspaceManifest(root, 1, "worker"));
 
   // 3. 用户文件 → input/（只读原始）+ working/（agent 可编辑副本）
   let staged = 0;
@@ -388,11 +392,19 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   };
   let verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract, formatValidator);
 
+  // V1.3 WP14：首轮执行前快照（repair 时回滚到干净状态）
+  const cleanSnapshotId = createWorkspaceSnapshot(root, "before-exec")?.id || null;
+
   // WP10：统一 AgentLoop 状态机（plan→act→observe→validate→repair→finish），事件进 task_events
   let loop: AgentLoopState = { ...INITIAL_LOOP, maxAttempts };
   await input.emit("agent.started", { worker: "dev", runtime: runtimeId });
 
   for (let attempt = 1; attempt <= maxAttempts && verdict.status !== "completed"; attempt++) {
+    // V1.3 WP14：repair 前回滚到首轮前快照（清掉 Agent 可能写坏的中间文件），再干净重试
+    if (cleanSnapshotId) {
+      restoreWorkspaceSnapshot(root, cleanSnapshotId);
+      writeWorkspaceManifest(root, buildWorkspaceManifest(root, 1 + attempt, "repair"));
+    }
     // 显式 validation_failed + repair_started（UI 只认识 AgentEvent；progress 保留兼容）
     await input.emit("validation.failed", { reason: verdict.reason, missing: verdict.missing.map((m) => m.filenamePattern || m.kind || "file") });
     await input.emit("repair.started", { attempt, maxAttempts });
