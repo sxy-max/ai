@@ -3,7 +3,7 @@
 # 连续 3 次构建（第 2/3 次走缓存），每次检查 standalone 产物完整：
 #   server.js 存在 + scripts/task-worker.cjs + scripts/db-migrate.cjs + scripts/schema.sql
 # 用法（服务器）：bash scripts/build-smoke.sh [镜像名:tag]
-set -euo pipefail
+set -eu
 
 IMAGE="${1:-ai-client:v1.3}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
