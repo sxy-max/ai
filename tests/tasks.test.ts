@@ -152,6 +152,17 @@ test("暂停/恢复/取消/重试", async () => {
   await assert.rejects(R().cancelTask(task.id));
 });
 
+
+test("V1.4 WP14：任务操作识别（analyze/edit/transform/create）", async () => {
+  const { classifyTask, detectOperation } = await import("../lib/taskRouter");
+  assert.equal(detectOperation("看看这个 Excel 说了什么", true), "analyze");
+  assert.equal(detectOperation("把第三列排序", true), "edit");
+  assert.equal(detectOperation("把 CSV 转成 XLSX", true), "transform");
+  assert.equal(detectOperation("根据数据做表格", false), "create");
+  // classify 输出带 operation
+  const intent = classifyTask({ message: "把第三列排序", attachments: [{ kind: "text", name: "d.csv" }] });
+  assert.equal(intent?.operation, "edit");
+});
 test("产物版本化：同名第二次注册 version 递增", async () => {
   const user = await testUser("task-version");
   const task = await R().createTask({ userId: user.id, goal: "版本测试" });

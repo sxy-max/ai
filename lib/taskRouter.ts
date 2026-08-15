@@ -16,6 +16,9 @@ export type TaskConfidence = "high" | "medium" | "low";
 
 export type RouteTarget = "chat" | "artifact" | "file_agent";
 
+/** V1.4 WP14：任务操作（analyze/edit/transform/create）。 */
+export type TaskOperation = "analyze" | "edit" | "transform" | "create" | "unknown";
+
 export type TaskIntent = {
   type: TaskType;
   artifactKind?: ArtifactKind;
@@ -23,7 +26,20 @@ export type TaskIntent = {
   confidence: TaskConfidence;
   reason: string;
   routeTarget: RouteTarget;
+  /** V1.4 WP14：文件编辑语义（"看看"=analyze；"排序"=edit；"转格式"=transform；"做"=create）。 */
+  operation: TaskOperation;
 };
+
+/** V1.4 WP14：操作识别（规则；deterministic）。 */
+export function detectOperation(message: string, hasFiles: boolean): TaskOperation {
+  const m = message.toLowerCase();
+  if (!hasFiles) return /(分析|总结|解释|看看|阅读|讲一下)/.test(m) ? "analyze" : "create";
+  if (/(转成|转换|转成|导出为|转格式|转成|xlsx|pdf)/.test(m) && /(转|转换|导出)/.test(m)) return "transform";
+  if (/(修改|排序|过滤|更新|调整|编辑|替换|删除|新增列|加一列|去重)/.test(m)) return "edit";
+  if (/(看看|总结|分析|讲了什么|内容是什么|读取)/.test(m)) return "analyze";
+  if (/(做|生成|创建|根据.*做|做成)/.test(m)) return "create";
+  return hasFiles ? "edit" : "create";
+}
 
 export type ClassifyAttachment = { kind: "text" | "image"; mime?: string; name?: string };
 
@@ -75,8 +91,8 @@ function detectArtifactKind(message: string): ArtifactKind {
   return "unknown";
 }
 
-function artifactIntent(kind: ArtifactKind, reason: string): TaskIntent {
-  return { type: "artifact", artifactKind: kind, needsSandbox: false, confidence: "high", reason, routeTarget: "artifact" };
+function artifactIntent(kind: ArtifactKind, reason: string, message?: string): TaskIntent {
+  return { type: "artifact", artifactKind: kind, needsSandbox: false, confidence: "high", reason, routeTarget: "artifact", operation: detectOperation(message || "", false) };
 }
 
 /**
@@ -96,43 +112,43 @@ export function classifyTask(input: ClassifyInput): TaskIntent | null {
   if (!message && attachments.length === 0) return null;
 
   // R1 特例：明确「直接给文件」。
-  if (DIRECT_FILE.test(message)) return artifactIntent(detectArtifactKind(message), "explicit_direct_file");
+  if (DIRECT_FILE.test(message)) return artifactIntent(detectArtifactKind(message), "explicit_direct_file", message);
 
   // R3a：图片引用 + 复刻/修改/生成动作。
   if (hasImages && (IMAGE_MODIFY_REF.test(message) || IMAGE_MODIFY_RESULT.test(message))) {
-    return { type: "agent_workspace", needsSandbox: true, confidence: "high", reason: "image_replicate", routeTarget: "file_agent" };
+    return { type: "agent_workspace", needsSandbox: true, confidence: "high", reason: "image_replicate", routeTarget: "file_agent", operation: detectOperation(message, hasFiles) };
   }
 
   // R3b：图片 + 修改类动词（无显式图引用，保守按图修改处理）。
   if (hasImages && MODIFY_VERBS.test(message)) {
-    return { type: "agent_workspace", needsSandbox: true, confidence: "high", reason: "image_modify", routeTarget: "file_agent" };
+    return { type: "agent_workspace", needsSandbox: true, confidence: "high", reason: "image_modify", routeTarget: "file_agent", operation: detectOperation(message, hasFiles) };
   }
 
   // R4：图片纯问答。
   if (hasImages && IMAGE_QA.test(message)) {
-    return { type: "chat", needsSandbox: false, confidence: "high", reason: "image_qa", routeTarget: "chat" };
+    return { type: "chat", needsSandbox: false, confidence: "high", reason: "image_qa", routeTarget: "chat", operation: "analyze" };
   }
 
   // R1：显式文件生成。
   if (ARTIFACT_PATTERN.test(message)) {
-    return artifactIntent(detectArtifactKind(message), "explicit_artifact");
+    return artifactIntent(detectArtifactKind(message), "explicit_artifact", message);
   }
 
   // R2：带文件但只是问内容 → chat。
   if (hasFiles && FILE_QA.test(message)) {
-    return { type: "chat", needsSandbox: false, confidence: "high", reason: "file_qa", routeTarget: "chat" };
+    return { type: "chat", needsSandbox: false, confidence: "high", reason: "file_qa", routeTarget: "chat", operation: "analyze" };
   }
 
   // R2：文件 + 修改/整理/处理 → agent_workspace。
   if (hasFiles && MODIFY_VERBS.test(message)) {
-    return { type: "agent_workspace", needsSandbox: true, confidence: "high", reason: "file_modify", routeTarget: "file_agent" };
+    return { type: "agent_workspace", needsSandbox: true, confidence: "high", reason: "file_modify", routeTarget: "file_agent", operation: detectOperation(message, true) };
   }
 
   // R5：纯文本构建项目 / 多步执行。
   if (!hasFiles && !hasImages && PROJECT_BUILD.test(message)) {
-    return { type: "agent_workspace", needsSandbox: true, confidence: "medium", reason: "project_build", routeTarget: "file_agent" };
+    return { type: "agent_workspace", needsSandbox: true, confidence: "medium", reason: "project_build", routeTarget: "file_agent", operation: "create" };
   }
 
   // R6：其余 → chat。
-  return { type: "chat", needsSandbox: false, confidence: "medium", reason: "fallback_chat", routeTarget: "chat" };
+  return { type: "chat", needsSandbox: false, confidence: "medium", reason: "fallback_chat", routeTarget: "chat", operation: detectOperation(message, hasFiles) };
 }
