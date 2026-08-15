@@ -31,14 +31,17 @@ function taskWorkspaceRoot(jobId: string): string {
   return path.join(WORKSPACES_ROOT, "tasks", jobId);
 }
 
-/** 把任务 workspace 的 input/working 同步进 agent 工作区（共享卷）。 */
+/** 把任务 workspace 的 input/working/task 同步进 agent 工作区（共享卷；777 供沙盒进程可写）。 */
 function syncToAgentWorkspace(agentRoot: string, taskRoot: string): void {
   fs.mkdirSync(agentRoot, { recursive: true });
+  // AgentScope 沙盒进程（uid 10001）与主应用（uid 1000）都需可写：目录 777（workspaces 是隔离目录）
+  try { fs.chmodSync(agentRoot, 0o777); } catch {}
   for (const dir of ["input", "working", "task"]) {
     const src = path.join(taskRoot, dir);
     if (!fs.existsSync(src)) continue;
     const dest = path.join(agentRoot, dir);
     fs.mkdirSync(dest, { recursive: true });
+    try { fs.chmodSync(dest, 0o777); } catch {}
     for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
       if (entry.isDirectory()) continue;
       const srcFile = path.join(src, entry.name);
