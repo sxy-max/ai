@@ -125,3 +125,15 @@
 - **真实 bug 修复**（0b5e643）：`app/tasks/[id]/page.tsx` currentStage useMemo 在 `if (!detail) return` 之后调用 → "Rendered more hooks than during the previous render"，任务详情页打开即整页崩溃。已移到条件返回之前（Hooks 无条件调用）
 - **E2E 与产品对齐**：E2E 仍假设 `/` = 聊天页 + 文件任务聊天页内联 JobCard；产品已迁移（`/` = 任务启动器，文件任务 → POST /api/tasks → 详情页，PRD V1/V11 WP10）。goto 改 `/chat`；TEST16/17 重写为任务系统流程（聊天页创建任务 → 详情页渲染 + 事件流/步骤 Tab/取消；404 错误路径），守护 hooks 崩溃回归
 - **验证**：E2E 17/17 PASS（此前全挂 20.3s 超时——页面未加载），typecheck + build PASS
+
+## 2026-08-15 V1.1 续接轮 3（T7 真实模型验证完成，阻塞解除）
+
+**用户提供 OPENCODE_GO_API_KEY（本地 .env.local，gitignored）后完成真实模型验证**：
+
+- **T7 截断真实复现**（系统 /api/chat 流式 + deepseek-v4-pro）：maxOutputTokens=150 → `stopReason=length`、text 空、reasoning 非空 → **WP14 判定 retry=true 正确触发**（多次独立复现）
+- **重试成功闭环**：提高预算（150→1500）→ 产出 final ✓（中等题；档位 500/900 仍截断、1500 成功）
+- **模型侧根因实证**（"只分析不交付"的深层机制）：deepseek-v4-pro 思考贪心，预算总被思考耗尽（预算 150/500/900/1500/2000 → reasoning 256/751/1396/4571/6796 字符，均无 final）。**V1.2 建议：推理模型独立 reasoning budget 或图片修改任务默认非推理模型（deepseek-v4-flash）**
+- **MiniMax vision 通道真实可用**：同一 key 对 reference.png 出结构化描述（正确读出卡片文字）
+- **环境限制（非产品缺陷）**：本地代理（Clash TUN）对 opencode.ai 长连接约 40s 断开，≥3000 max_tokens 的生成不可达；服务器无此限制。WP14 客户端重试 16K 语义保留
+- 系统行为最终结论：截断→判定→最多一次重试→提高预算→成功/明确提示，不无限循环（8 单测覆盖）
+- **DeepSeek 图片任务真实复测**：仍需服务器（本地无 file-agent 容器）；模型侧根因已实证 + 视觉摘要内联修复已上线代码，待服务器回归
