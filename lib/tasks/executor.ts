@@ -56,10 +56,15 @@ ${ctx.userMemory ? `用户偏好：${ctx.userMemory}\n` : ""}${ctx.skills ? `技
     return { summary: answer.slice(0, 500) };
   }
 
-  // 无模型可用：确定性兜底（不假装回答）
-  const fallback = fileContext
-    ? `已读取 ${ctx.files.length} 个文件（${ctx.files.map((f) => f.filename).join("、")}）。当前实例未配置规划/回答模型（OPENCODE_GO_API_KEY / DEEPSEEK_API_KEY），无法生成深度分析内容；配置后重试。`
+  // 无模型可用/调用失败：确定性兜底（不假装回答；文案区分"未配置"与"调用失败/超时"）
+  const { configuredPlannerProvider } = await import("../llm/complete");
+  const provider = configuredPlannerProvider();
+  const failureNote = provider
+    ? "模型调用失败或超时（模型服务未响应），本步骤未能完成深度分析。"
     : "当前实例未配置回答模型（OPENCODE_GO_API_KEY / DEEPSEEK_API_KEY），本步骤需要模型完成。请配置后重试。";
+  const fallback = fileContext
+    ? `已读取 ${ctx.files.length} 个文件（${ctx.files.map((f) => f.filename).join("、")}）。${failureNote}`
+    : failureNote;
   await ctx.emit("tool.completed", { name: "general", ok: false, output: fallback });
   return { summary: fallback };
 }
