@@ -112,7 +112,8 @@ async function main() {
   await runCase("C03 CSV→XLSX 真实表格", async () => {
     const csv = Buffer.from("姓名,数学,语文\n张三,85,90\n李四,92,88\n王五,76,82", "utf8");
     fs.writeFileSync("/fixtures/scores.csv", csv);
-    const id = await createTask({ type: "agent_workspace", goal: "把这个 CSV 转成 Excel 并新增平均分列", title: "C03", files: [{ path: "/fixtures/scores.csv", name: "scores.csv" }] });
+    // V1.4：表格转换走 artifact 生成器管线（file-agent 容器无 spreadsheet 工具=limitation）
+    const id = await createTask({ type: "artifact", goal: "把这个 CSV 转成 Excel 并新增平均分列", title: "C03", files: [{ path: "/fixtures/scores.csv", name: "scores.csv" }] });
     const r = await pollTask(id);
     if (!r.ok) throw new Error(`status=${r.task.status}`);
     const arts = (await api(`/api/tasks/${id}`)).json?.artifacts || [];

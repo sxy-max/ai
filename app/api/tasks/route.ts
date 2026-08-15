@@ -44,6 +44,11 @@ export async function POST(request: Request) {
       goal = String(form.get("goal") || "").trim();
       const typeRaw = String(form.get("type") || "");
       if (typeRaw === "artifact" || typeRaw === "agent_workspace") rawType = typeRaw;
+      // V1.4 WP37：multipart 路径补齐 projectId/title（此前仅 JSON 分支解析，项目关联在上传任务丢失）
+      title = String(form.get("title") || "") || undefined;
+      projectId = String(form.get("projectId") || "") || null;
+      parentTaskId = String(form.get("parentTaskId") || "") || null;
+      priority = form.get("priority") === "low" || form.get("priority") === "high" ? (form.get("priority") as "low" | "high") : "normal";
       const files = form.getAll("files").filter((x): x is File => x instanceof File);
       if (files.length > MAX_FILES) return NextResponse.json({ ok: false, error: "一次最多 20 个文件" }, { status: 400 });
       for (const f of files) {

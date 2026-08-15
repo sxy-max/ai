@@ -357,6 +357,8 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     let collected = 0;
     const outputs = (await adapter.collectOutputs?.(ws.root)) || [];
     const knownDirs = new Set(["task", "input", "vision", "working", "output", "artifacts", "logs", ".go-ai"]);
+    // V1.4：系统工作文件不注册为产物（agent 拷贝 task.json/context.json 到 output 的噪音）
+    const SYSTEM_FILES = new Set(["task.json", "task.md", "context.json", "workspace.json", "runtime.json", "events.ndjson", "stdout.log", "stderr.log"]);
     const candidates = [...outputs];
     // 根目录直接落盘的文件（agent 可能忽略 output/ 约定）
     try {
@@ -371,6 +373,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     for (const output of candidates) {
       if (output.isDir) continue;
       const base = path.basename(output.relPath);
+      if (SYSTEM_FILES.has(base)) continue; // V1.4：系统文件跳过
       const name = base.replace(/\.[^.]+$/, "");
       if (seen.has(name)) continue;
       seen.add(name);

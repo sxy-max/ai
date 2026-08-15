@@ -113,11 +113,12 @@ function esc(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** HTML → PDF（playwright；无浏览器返回 null 降级）。 */
+/** HTML → PDF（playwright；无浏览器返回 null 降级；服务器用系统 chromium）。 */
 export async function renderPdfFromHtml(html: string, options?: { landscape?: boolean }): Promise<Buffer | null> {
   try {
     const { chromium } = await import("@playwright/test");
-    const browser = await chromium.launch();
+    const { launchOptions } = await import("../chromium");
+    const browser = await chromium.launch(launchOptions({ headless: true }));
     try {
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle", timeout: 20_000 });

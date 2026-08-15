@@ -29,6 +29,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+# V1.4 WP49：系统 chromium——PDF 渲染（pdfGenerator）与 Browser Runtime 的云端路径
+# （playwright 浏览器缓存不进镜像；launch 时经 lib/chromium.ts 探测 executablePath）
+RUN apk add --no-cache chromium
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 EXPOSE 3000

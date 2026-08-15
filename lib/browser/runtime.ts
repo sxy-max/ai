@@ -61,11 +61,11 @@ type PlaywrightBrowser = {
   close(): Promise<void>;
 };
 
-/** 动态获取 chromium（与 PDF 渲染共用 @playwright/test 的浏览器二进制）。 */
-async function loadChromium(): Promise<{ launch(opts: { headless: boolean }): Promise<PlaywrightBrowser> }> {
+/** 动态获取 chromium（与 PDF 渲染共用 @playwright/test 的浏览器二进制；服务器用系统 chromium）。 */
+async function loadChromium(): Promise<{ launch(opts: { headless: boolean; executablePath?: string }): Promise<PlaywrightBrowser> }> {
   try {
     const { chromium } = await import("@playwright/test");
-    return chromium as unknown as { launch(opts: { headless: boolean }): Promise<PlaywrightBrowser> };
+    return chromium as unknown as { launch(opts: { headless: boolean; executablePath?: string }): Promise<PlaywrightBrowser> };
   } catch (e) {
     throw new Error(`BROWSER_UNAVAILABLE：Playwright Chromium 不可用（${(e as Error)?.message || e}）`);
   }
@@ -100,7 +100,8 @@ export class BrowserSession {
   async launch(): Promise<void> {
     if (this.isReady) return;
     const chromium = await loadChromium();
-    this.browser = await chromium.launch({ headless: this.options.headless ?? true });
+    const { launchOptions } = await import("../chromium");
+    this.browser = await chromium.launch(launchOptions({ headless: this.options.headless ?? true }));
     this.context = await this.browser.newContext({
       userAgent: this.options.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GoAI-Browser/1.4",
       viewport: { width: 1280, height: 800 },
