@@ -66,6 +66,7 @@ import { PresentationGenerator } from "./presentationGenerator";
 import { SpreadsheetGenerator } from "./spreadsheetGenerator";
 import { DocumentGenerator } from "./documentGenerator";
 import { WebGenerator } from "./webGenerator";
+import { PdfGenerator } from "./pdfGenerator";
 
 class UnsupportedGenerator implements ArtifactGenerator {
   readonly family: ArtifactFamily;
@@ -82,8 +83,8 @@ const GENERATORS: Record<ArtifactFamily, ArtifactGenerator> = {
   spreadsheet: new SpreadsheetGenerator(),
   document: new DocumentGenerator(),
   webpage: new WebGenerator(),
+  pdf: new PdfGenerator(),
   // 本轮未实现的 family：明确报错（不静默）
-  pdf: new UnsupportedGenerator("pdf"),
   image: new UnsupportedGenerator("image"),
   archive: new UnsupportedGenerator("archive"),
   code_project: new UnsupportedGenerator("code_project"),

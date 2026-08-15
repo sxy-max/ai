@@ -50,12 +50,12 @@ test("布局选项完整（10 种原语）", () => {
 
 /* ---------- WP3 Generator Engine ---------- */
 
-test("engine 注册表：presentation/spreadsheet/document/webpage 支持；pdf/image 明确不支持", () => {
+test("engine 注册表：presentation/spreadsheet/document/webpage/pdf 支持；image 明确不支持", () => {
   assert.equal(isGeneratorSupported("presentation"), true);
   assert.equal(isGeneratorSupported("spreadsheet"), true);
   assert.equal(isGeneratorSupported("document"), true);
   assert.equal(isGeneratorSupported("webpage"), true);
-  assert.equal(isGeneratorSupported("pdf"), false);
+  assert.equal(isGeneratorSupported("pdf"), true, "V1.4 WP12 PDF pipeline");
   assert.equal(isGeneratorSupported("image"), false);
 });
 
