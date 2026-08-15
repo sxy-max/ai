@@ -16,7 +16,7 @@ export type ProbeSummary = ProviderProbeRecord & { model: string };
 export async function persistProbeResults(records: ProbeSummary[]): Promise<void> {
   try {
     const client = redis();
-    await client.set(PROBE_KEY, JSON.stringify(records), "EX", 30 * 60);
+    if (client) await client.set(PROBE_KEY, JSON.stringify(records), "EX", 30 * 60);
   } catch {}
 }
 
@@ -24,6 +24,7 @@ export async function persistProbeResults(records: ProbeSummary[]): Promise<void
 export async function readProbeResults(): Promise<ProbeSummary[]> {
   try {
     const client = redis();
+    if (!client) return [];
     const raw = await client.get(PROBE_KEY);
     if (!raw) return [];
     return JSON.parse(raw) as ProbeSummary[];
