@@ -30,6 +30,7 @@ import { listProjectMemory, listUserMemory } from "./memory";
 import { listTaskArtifacts } from "./artifacts";
 import { validateTaskCompletion } from "./completion";
 import { listEnabledSkillsText } from "./skills";
+import { buildInputManifest } from "./inputManifest";
 import { recordTaskMetrics } from "./metrics";
 import { createJob, heartbeatJob, updateJobStatus, writeJobCheckpoint, claimExpiredJob, type JobCheckpoint } from "./job";
 
@@ -439,12 +440,14 @@ async function buildPlanContext(task: TaskRow) {
     taskFiles(task.id),
     task.project_id ? listProjectArtifactSummary(task.project_id) : Promise.resolve(""),
   ]);
+  // V1.4 WP46：InputManifest——planner 直接获得真实输入结构（文本预览/xlsx sheet/PDF 页数），不只文件名
+  const manifest = await buildInputManifest(files.map((f) => ({ filename: String(f.filename), size: Number(f.size || 0), storageKey: f.storage_key ? String(f.storage_key) : null })));
   const projectContext = [
     projectMemory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
     projectArtifacts,
   ].filter(Boolean).join("\n\n");
   return {
-    files: files.map((file) => ({ filename: String(file.filename) })),
+    files: files.map((file, i) => ({ filename: String(file.filename), summary: manifest[i]?.summary })),
     projectContext,
     userMemory: memory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
     skills

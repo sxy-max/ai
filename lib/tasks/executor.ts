@@ -224,37 +224,10 @@ async function runDev(ctx: StepContext): Promise<StepResult> {
 
 async function fileSummaries(ctx: StepContext): Promise<string> {
   if (!ctx.files.length) return "";
-  const lines: string[] = [];
-  for (const file of ctx.files) {
-    let preview = "";
-    try {
-      if (file.storageKey) {
-        const buf = artifactService.readContent(file.storageKey);
-        if (buf) {
-          // V1.2 WP16：xlsx 输入给结构化摘要（sheets/列/样例），替代二进制提示
-          if (/\.xlsx$/i.test(file.filename)) {
-            const { summarizeXlsx, xlsxSummaryText } = await import("../files/xlsxReader");
-            const summary = summarizeXlsx(buf);
-            if (summary) {
-              preview = `\n  ${xlsxSummaryText(summary).replace(/\n/g, "\n  ")}`;
-            } else {
-              preview = "（二进制文件，内容不展开预览）";
-            }
-          } else {
-            // 二进制守卫：含 NUL 字节按二进制处理，不按 UTF-8 硬读（避免乱码污染上下文）
-            const head = buf.subarray(0, 512);
-            if (head.includes(0)) {
-              preview = "（二进制文件，内容不展开预览）";
-            } else {
-              preview = buf.subarray(0, 4000).toString("utf8").replace(/\s+/g, " ").slice(0, 1200);
-            }
-          }
-        }
-      }
-    } catch {}
-    lines.push(`- ${file.filename}（${file.size} bytes）${preview ? `${preview}` : ""}`);
-  }
-  return `已上传文件：\n${lines.join("\n")}`;
+  // V1.4 WP46：统一走 InputManifest（文本预览/xlsx sheet 结构/PDF 页数）
+  const { buildInputManifest, inputManifestText } = await import("./inputManifest");
+  const entries = await buildInputManifest(ctx.files.map((f) => ({ filename: f.filename, size: f.size, storageKey: f.storageKey ?? null })));
+  return inputManifestText(entries);
 }
 
 function splitQueries(goal: string): string[] {
