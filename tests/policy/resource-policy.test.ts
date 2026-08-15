@@ -1,7 +1,7 @@
 /** ResourcePolicy 测试（V1.3 WP28）。 */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadResourcePolicy, checkSteps, checkToolCalls, checkArtifactSize, checkConcurrentCapacity } from "../lib/policy/resourcePolicy";
+import { loadResourcePolicy, checkSteps, checkToolCalls, checkArtifactSize, checkConcurrentCapacity } from "../../lib/policy/resourcePolicy";
 
 test("默认策略：并发 2 / 沙盒 2 / 内存 512MB / 步骤 12 / 工具 200", () => {
   const policy = loadResourcePolicy({});
