@@ -62,10 +62,10 @@ type PlaywrightBrowser = {
 };
 
 /** 动态获取 chromium（与 PDF 渲染共用 @playwright/test 的浏览器二进制；服务器用系统 chromium）。 */
-async function loadChromium(): Promise<{ launch(opts: { headless: boolean; executablePath?: string }): Promise<PlaywrightBrowser> }> {
+async function loadChromium(): Promise<{ launch(opts: Record<string, unknown>): Promise<PlaywrightBrowser> }> {
   try {
     const { chromium } = await import("@playwright/test");
-    return chromium as unknown as { launch(opts: { headless: boolean; executablePath?: string }): Promise<PlaywrightBrowser> };
+    return chromium as unknown as { launch(opts: Record<string, unknown>): Promise<PlaywrightBrowser> };
   } catch (e) {
     throw new Error(`BROWSER_UNAVAILABLE：Playwright Chromium 不可用（${(e as Error)?.message || e}）`);
   }

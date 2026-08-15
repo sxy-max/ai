@@ -24,8 +24,9 @@ export function systemChromiumPath(): string | undefined {
   return undefined;
 }
 
-/** chromium.launch 参数（带 executablePath 时注入）。 */
-export function launchOptions(base: { headless: boolean }): { headless: boolean; executablePath?: string } {
+/** chromium.launch 参数（带 executablePath 时注入；容器内系统 chromium 需 --no-sandbox）。 */
+export function launchOptions(base: { headless: boolean }): { headless: boolean; executablePath?: string; chromiumSandbox?: boolean } {
   const path = systemChromiumPath();
-  return path ? { ...base, executablePath: path } : base;
+  // 系统 chromium（Docker 容器）无 setuid sandbox → 必须禁用沙盒，否则启动即崩
+  return path ? { ...base, executablePath: path, chromiumSandbox: false } : base;
 }
