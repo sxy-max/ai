@@ -22,6 +22,16 @@ export type PresentationSpec = {
   title: string;
   subtitle?: string;
   slides: PresentationSlide[];
+  /** V1.2 WP15：主题（可选；缺省由 renderer 默认主题）。 */
+  theme?: {
+    titleBackground?: string;
+    titleText?: string;
+    subtitleText?: string;
+    slideBackground?: string;
+    headingText?: string;
+    accent?: string;
+    bodyText?: string;
+  };
 };
 
 const SPEC_SYSTEM = `你是云端 AI 工作系统的演示文稿规划器。根据用户要求生成结构化演示文稿内容。
@@ -86,6 +96,11 @@ function isSpec(value: unknown): value is PresentationSpec {
 }
 
 function normalizeSpec(value: PresentationSpec): PresentationSpec {
+  const hexOf = (v: unknown): string | undefined => {
+    const s = String(v || "").trim();
+    return /^[0-9a-fA-F]{3,8}$/.test(s) ? s.toUpperCase() : undefined;
+  };
+  const theme = value.theme && typeof value.theme === "object" ? value.theme : undefined;
   return {
     title: String(value.title).slice(0, 120),
     subtitle: typeof value.subtitle === "string" ? value.subtitle.slice(0, 200) : undefined,
@@ -95,6 +110,19 @@ function normalizeSpec(value: PresentationSpec): PresentationSpec {
       equations: (Array.isArray(slide.equations) ? slide.equations : []).map((e) => String(e).slice(0, 300)).slice(0, 4),
       notes: typeof slide.notes === "string" ? slide.notes.slice(0, 500) : undefined,
       layout: slide.layout === "two-column" || slide.layout === "title" ? slide.layout : "content"
-    }))
+    })),
+    ...(theme
+      ? {
+          theme: {
+            ...(hexOf(theme.titleBackground) ? { titleBackground: hexOf(theme.titleBackground) } : {}),
+            ...(hexOf(theme.titleText) ? { titleText: hexOf(theme.titleText) } : {}),
+            ...(hexOf(theme.subtitleText) ? { subtitleText: hexOf(theme.subtitleText) } : {}),
+            ...(hexOf(theme.slideBackground) ? { slideBackground: hexOf(theme.slideBackground) } : {}),
+            ...(hexOf(theme.headingText) ? { headingText: hexOf(theme.headingText) } : {}),
+            ...(hexOf(theme.accent) ? { accent: hexOf(theme.accent) } : {}),
+            ...(hexOf(theme.bodyText) ? { bodyText: hexOf(theme.bodyText) } : {}),
+          },
+        }
+      : {}),
   };
 }

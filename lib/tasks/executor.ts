@@ -228,17 +228,28 @@ async function fileSummaries(ctx: StepContext): Promise<string> {
       if (file.storageKey) {
         const buf = artifactService.readContent(file.storageKey);
         if (buf) {
-          // 二进制守卫：含 NUL 字节按二进制处理，不按 UTF-8 硬读（避免乱码污染上下文）
-          const head = buf.subarray(0, 512);
-          if (head.includes(0)) {
-            preview = "（二进制文件，内容不展开预览）";
+          // V1.2 WP16：xlsx 输入给结构化摘要（sheets/列/样例），替代二进制提示
+          if (/\.xlsx$/i.test(file.filename)) {
+            const { summarizeXlsx, xlsxSummaryText } = await import("../files/xlsxReader");
+            const summary = summarizeXlsx(buf);
+            if (summary) {
+              preview = `\n  ${xlsxSummaryText(summary).replace(/\n/g, "\n  ")}`;
+            } else {
+              preview = "（二进制文件，内容不展开预览）";
+            }
           } else {
-            preview = buf.subarray(0, 4000).toString("utf8").replace(/\s+/g, " ").slice(0, 1200);
+            // 二进制守卫：含 NUL 字节按二进制处理，不按 UTF-8 硬读（避免乱码污染上下文）
+            const head = buf.subarray(0, 512);
+            if (head.includes(0)) {
+              preview = "（二进制文件，内容不展开预览）";
+            } else {
+              preview = buf.subarray(0, 4000).toString("utf8").replace(/\s+/g, " ").slice(0, 1200);
+            }
           }
         }
       }
     } catch {}
-    lines.push(`- ${file.filename}（${file.size} bytes）${preview ? `\n  摘要：${preview}` : ""}`);
+    lines.push(`- ${file.filename}（${file.size} bytes）${preview ? `${preview}` : ""}`);
   }
   return `已上传文件：\n${lines.join("\n")}`;
 }
