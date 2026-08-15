@@ -122,6 +122,9 @@ export type DevStepInput = {  taskId: string;
   emit: (type: TaskEventType, payload?: Record<string, unknown>) => Promise<void>;
 };
 
+/** V1.4：系统工作文件不注册为产物（agent 拷贝 task.json/context.json 到 output 的噪音；上报路径与兜底收集共用）。 */
+export const SYSTEM_ARTIFACT_FILES = new Set(["task.json", "task.md", "context.json", "workspace.json", "runtime.json", "events.ndjson", "stdout.log", "stderr.log"]);
+
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 
 /** 任务级 Job 阶段 → task 事件（保持 UI 可见性）；同时落盘 events.ndjson 与日志（WP4）。 */
@@ -324,6 +327,8 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
         adapter,
         store,
         registerArtifact: async (name: string, content: Buffer) => {
+          const base = path.basename(name);
+          if (SYSTEM_ARTIFACT_FILES.has(base)) return null; // V1.4：系统文件不注册（agent 主动上报路径同样过滤）
           const kind = kindFromFilename(name);
           const artifact = await registerTaskArtifact({
             taskId: input.taskId,
@@ -357,8 +362,6 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     let collected = 0;
     const outputs = (await adapter.collectOutputs?.(ws.root)) || [];
     const knownDirs = new Set(["task", "input", "vision", "working", "output", "artifacts", "logs", ".go-ai"]);
-    // V1.4：系统工作文件不注册为产物（agent 拷贝 task.json/context.json 到 output 的噪音）
-    const SYSTEM_FILES = new Set(["task.json", "task.md", "context.json", "workspace.json", "runtime.json", "events.ndjson", "stdout.log", "stderr.log"]);
     const candidates = [...outputs];
     // 根目录直接落盘的文件（agent 可能忽略 output/ 约定）
     try {
@@ -373,7 +376,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     for (const output of candidates) {
       if (output.isDir) continue;
       const base = path.basename(output.relPath);
-      if (SYSTEM_FILES.has(base)) continue; // V1.4：系统文件跳过
+      if (SYSTEM_ARTIFACT_FILES.has(base)) continue; // V1.4：系统文件跳过
       const name = base.replace(/\.[^.]+$/, "");
       if (seen.has(name)) continue;
       seen.add(name);
