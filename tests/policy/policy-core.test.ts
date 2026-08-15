@@ -47,12 +47,12 @@ test("未知模型：仅基础文本能力，不假设高级能力", () => {
   assert.equal(modelHasCapability("some-unknown-model-xyz", "tool_execution"), false);
 });
 
-test("runtime 能力：claude-code 有 shell/code；agentscope 有 state/event_stream；deterministic 只有生成类", () => {
+test("runtime 能力：claude-code 有 shell/code；agentscope 有 state/event_stream/shell（V1.2 实测内置 Bash/PowerShell）；deterministic 只有生成类", () => {
   assert.equal(runtimeHasCapability("claude-code", "shell"), true);
   assert.equal(runtimeHasCapability("claude-code", "code_execution"), true);
   assert.equal(runtimeHasCapability("agentscope", "state"), true);
   assert.equal(runtimeHasCapability("agentscope", "event_stream"), true);
-  assert.equal(runtimeHasCapability("agentscope", "shell"), false, "AgentScope 不声明 shell");
+  assert.equal(runtimeHasCapability("agentscope", "shell"), true, "AgentScope 内置 Bash/PowerShell 工具（WP8 实测）");
   assert.equal(runtimeHasCapability("deterministic", "presentation_generation"), true);
   assert.equal(runtimeHasCapability("deterministic", "multi_step_agent"), false);
 });

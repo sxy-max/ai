@@ -141,7 +141,8 @@ const KNOWN_RUNTIMES: Record<RuntimeId, RuntimeCapabilities> = {
   },
   agentscope: {
     id: "agentscope",
-    capabilities: new Set(["multi_step_agent", "workspace", "tool_execution", "state", "event_stream", "file_read", "file_write"]),
+    // V1.2 WP8 实测：workspace 内置 6 工具（Bash/PowerShell、Edit、Glob、Grep、Read、Write）+ state/event_stream
+    capabilities: new Set(["multi_step_agent", "workspace", "tool_execution", "state", "event_stream", "file_read", "file_write", "shell", "code_execution", "project_edit"]),
   },
 };
 
