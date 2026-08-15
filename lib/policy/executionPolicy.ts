@@ -74,15 +74,12 @@ function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId
   return prefer("claude-code", ["agentscope"], "workspace-task: agent runtime required");
 }
 
-/** 工具集合按任务授权（WP11：不是把所有工具都给 Agent）。 */
+/** 工具集合按任务授权（WP11：与 Tool Registry 2.0 工具名一致；不是把所有工具都给 Agent）。 */
 function toolsFor(requirements: TaskRequirements): string[] {
-  const tools: string[] = [];
-  if (requirements.workspaceNeeded) {
-    tools.push("filesystem.read", "filesystem.write", "filesystem.list");
-    if (requirements.artifactKinds.some((k) => k === "zip")) tools.push("archive.extract", "archive.pack");
-    if (requirements.visionNeeded) tools.push("vision.read_context");
-    tools.push("artifact.register");
-  }
+  if (!requirements.workspaceNeeded) return [];
+  const tools = ["filesystem.read", "filesystem.write", "filesystem.list", "artifact.register"];
+  if (requirements.artifactKinds.some((k) => k === "zip")) tools.push("archive.extract", "archive.pack");
+  if (requirements.visionNeeded) tools.push("vision.read_context");
   return tools;
 }
 

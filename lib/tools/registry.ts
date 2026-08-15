@@ -1,6 +1,8 @@
 /**
- * Tool Registry（V1.1 WP7）：统一工具系统。
- * 工具声明（name/description/inputSchema/permission）+ 实现（execute 在 workspace 上下文中）。
+ * Tool Registry 2.0（V1.2 WP11）：统一工具系统。
+ * 工具声明：name/description/inputSchema/permission + capabilities（能力标注）+
+ * runtimeAvailability（可用运行时）+ timeoutMs + sideEffects（副作用声明）+ resultSchema。
+ * 每次 Agent 执行前由 ExecutionPolicy 授权工具集合（不是把所有工具都给 Agent）。
  * 事件统一进入 AgentEvent Stream；Claude Code 保留自身工具能力，但系统自己知道 Agent 做了什么。
  */
 
@@ -9,6 +11,8 @@ import path from "node:path";
 import { artifactService } from "../artifacts/service";
 import { WorkspaceManager } from "../workspace/service";
 import { safeExtractZip } from "../workspace/zip";
+import type { CapabilityId } from "../policy/capabilities";
+import type { RuntimeId } from "../policy/capabilities";
 
 export type ToolPermission = "read" | "workspace" | "agent" | "admin";
 
@@ -31,6 +35,16 @@ export type AgentTool = {
   description: string;
   inputSchema: Record<string, unknown>;
   permission: ToolPermission;
+  /** V1.2 WP11：工具所需能力（策略层按任务需求过滤；缺省 = 由 TOOL_META 合并）。 */
+  capabilities?: CapabilityId[];
+  /** V1.2 WP11：哪些 runtime 提供该工具（缺省 = 全部）。 */
+  runtimeAvailability?: RuntimeId[];
+  /** V1.2 WP11：单次执行超时（ms）。 */
+  timeoutMs?: number;
+  /** V1.2 WP11：副作用声明（审计/授权用）。 */
+  sideEffects?: string[];
+  /** V1.2 WP11：结果结构描述（schema 摘要）。 */
+  resultSchema?: string;
   execute(input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult>;
 };
 
@@ -227,18 +241,68 @@ const codeTools: AgentTool[] = [
 
 const ALL_TOOLS: AgentTool[] = [...filesystemTools, ...archiveTools, ...dataTools, ...artifactTools, ...visionTools, ...codeTools];
 
-export const TOOL_REGISTRY: Record<string, AgentTool> = Object.fromEntries(ALL_TOOLS.map((t) => [t.name, t]));
+/** V1.2 WP11：工具元数据（能力/运行时/超时/副作用/结果 schema；集中声明，不散落）。 */
+const TOOL_META: Record<string, Partial<AgentTool>> = {
+  "filesystem.read": { capabilities: ["file_read"], timeoutMs: 10_000, sideEffects: [], resultSchema: "{ok, output: string<200KB>}" },
+  "filesystem.write": { capabilities: ["file_write"], timeoutMs: 10_000, sideEffects: ["filesystem-write"], resultSchema: "{ok, output: {written, bytes}}" },
+  "filesystem.list": { capabilities: ["file_read"], timeoutMs: 10_000, sideEffects: [], resultSchema: "{ok, output: string[]}" },
+  "archive.extract": { capabilities: ["file_read", "file_write"], timeoutMs: 60_000, sideEffects: ["filesystem-write", "zip-extract"], resultSchema: "{ok, output: {extracted, files}}" },
+  "archive.pack": { capabilities: ["file_read", "file_write"], timeoutMs: 60_000, sideEffects: ["filesystem-write", "zip-pack"], resultSchema: "{ok, output: {packed, bytes}}" },
+  "data.csv.read": { capabilities: ["file_read"], timeoutMs: 15_000, sideEffects: [], resultSchema: "{ok, output: {columns, rows, rowCount}}" },
+  "artifact.register": { capabilities: ["file_read"], timeoutMs: 15_000, sideEffects: ["artifact-create"], resultSchema: "{ok, output: {artifactId, downloadUrl}}" },
+  "vision.read_context": { capabilities: ["vision", "file_read"], timeoutMs: 10_000, sideEffects: [], resultSchema: "{ok, output: {context}}", runtimeAvailability: ["claude-code", "agentscope"] },
+  "code.python.exec": { capabilities: ["code_execution"], timeoutMs: 35_000, sideEffects: ["code-execution", "process-spawn"], resultSchema: "{ok, output: string<10KB>}", runtimeAvailability: ["claude-code", "agentscope"] },
+};
 
-export function listTools(): Array<{ name: string; description: string; permission: ToolPermission }> {
-  return ALL_TOOLS.map((t) => ({ name: t.name, description: t.description, permission: t.permission }));
+export const TOOL_REGISTRY: Record<string, AgentTool> = Object.fromEntries(
+  ALL_TOOLS.map((t) => [t.name, { ...t, ...TOOL_META[t.name] }])
+);
+
+export function listTools(): Array<{ name: string; description: string; permission: ToolPermission; capabilities: CapabilityId[]; timeoutMs?: number; sideEffects?: string[] }> {
+  return ALL_TOOLS.map((t) => ({ name: t.name, description: t.description, permission: t.permission, capabilities: TOOL_META[t.name]?.capabilities || [], timeoutMs: TOOL_META[t.name]?.timeoutMs, sideEffects: TOOL_META[t.name]?.sideEffects }));
 }
 
-/** 执行工具（带事件上报）。 */
+/**
+ * V1.2 WP11：按任务需求授权工具集合（不是把所有工具都给 Agent）。
+ * @param requirements.capabilities 任务需求能力（工具必须具备全部）
+ * @param requirements.runtime 当前 runtime（工具声明了 runtimeAvailability 时必须匹配）
+ */
+export function authorizedTools(requirements: { capabilities?: CapabilityId[]; runtime?: RuntimeId; extra?: string[] }): string[] {
+  const names: string[] = [];
+  for (const tool of ALL_TOOLS) {
+    const meta = TOOL_META[tool.name] || {};
+    // 工具能力必须覆盖任务需求（任务需要的每个能力工具都具备）
+    if (requirements.capabilities?.length && !requirements.capabilities.every((c) => (meta.capabilities || []).includes(c))) continue;
+    if (requirements.runtime && meta.runtimeAvailability && !meta.runtimeAvailability.includes(requirements.runtime)) continue;
+    names.push(tool.name);
+  }
+  for (const extra of requirements.extra || []) {
+    if (TOOL_REGISTRY[extra] && !names.includes(extra)) names.push(extra);
+  }
+  return names;
+}
+
+/** 执行工具（带事件上报 + 单次超时）。 */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
   const tool = TOOL_REGISTRY[name];
   if (!tool) return { ok: false, output: null, error: `未知工具：${name}` };
   if (ctx.emit) await ctx.emit(name, input);
-  const result = await tool.execute(input, ctx);
-  if (ctx.emit) await ctx.emit(name, input, { ok: result.ok, output: result.error || JSON.stringify(result.output).slice(0, 500) });
-  return result;
+  const timeoutMs = tool.timeoutMs || 30_000;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const result = await Promise.race([
+      tool.execute(input, ctx),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`TOOL_TIMEOUT: ${name} 超过 ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+    if (ctx.emit) await ctx.emit(name, input, { ok: result.ok, output: result.error || JSON.stringify(result.output).slice(0, 500) });
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "tool failed";
+    if (ctx.emit) await ctx.emit(name, input, { ok: false, output: message });
+    return { ok: false, output: null, error: message };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
