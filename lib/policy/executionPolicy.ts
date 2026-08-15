@@ -88,6 +88,11 @@ function toolsFor(requirements: TaskRequirements): string[] {
   const tools = ["filesystem.read", "filesystem.write", "filesystem.list", "artifact.register"];
   if (requirements.artifactKinds.some((k) => k === "zip")) tools.push("archive.extract", "archive.pack");
   if (requirements.visionNeeded) tools.push("vision.read_context");
+  // V1.4 WP8-10：表格意图任务授权 spreadsheet 工具（AgentScope/sandbox 通道可用；
+  // Claude Code 通道工具集由容器侧决定——见 EXECUTION_STATE limitation）
+  if (requirements.artifactKinds.some((k) => k === "xlsx" || k === "csv")) {
+    tools.push("spreadsheet.read_workbook", "spreadsheet.list_sheets", "spreadsheet.read_range", "spreadsheet.write_range", "spreadsheet.add_sheet", "spreadsheet.delete_sheet", "spreadsheet.sort_range", "spreadsheet.filter_rows", "spreadsheet.create_formula", "spreadsheet.create_chart", "spreadsheet.format_cells", "spreadsheet.save_workbook");
+  }
   // V1.4 WP19：研究/网页类任务（requiredCapabilities 含 browser）授权浏览器工具集
   if (requirements.requiredCapabilities.includes("browser")) {
     tools.push("browser.navigate", "browser.read_page", "browser.click", "browser.type", "browser.scroll", "browser.screenshot", "browser.download", "browser.back");

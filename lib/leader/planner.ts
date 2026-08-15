@@ -34,6 +34,9 @@ export async function generatePlan(task: TaskRow, context: PlanContext): Promise
   // agent_workspace 类型：强制确定性单 dev 步骤（一次容器执行完成全部工作，
   // 避免 LLM 拆出多个独立 dev 步骤导致每步只做表面操作、无产物交付）
   if (task.type === "agent_workspace") return planFromRules(task, context);
+  // V1.4 WP31：artifact 类型任务同样确定性规划——用户意图明确产物类型，
+  // LLM 规划曾把"做成 PDF"拆成 dev 步骤（file-agent 容器无 PDF 管线 → 任务失败）
+  if (task.type === "artifact") return planFromRules(task, context);
   const llmPlan = await planWithLlm(task, context);
   if (llmPlan?.length) return llmPlan;
   return planFromRules(task, context);

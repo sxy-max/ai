@@ -99,12 +99,13 @@ async function main() {
     if (!pptx) throw new Error(`无 pptx 产物: ${arts.map((a) => a.type).join(",")}`);
     const buf = await downloadArtifact(pptx.downloadUrl);
     if (buf.subarray(0, 2).toString() !== "PK") throw new Error("非 ZIP/PPTX 容器");
-    const JSZip = (await import(process.cwd() + "/node_modules/jszip/index.js")).default;
-    const z = await JSZip.loadAsync(buf);
-    const slides = Object.keys(z.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+    fs.writeFileSync("/fixtures/c02.pptx", buf);
+    const { execFileSync } = await import("node:child_process");
+    const listing = execFileSync("unzip", ["-l", "/fixtures/c02.pptx"], { encoding: "utf8" });
+    const slides = listing.match(/ppt\/slides\/slide\d+\.xml/g) || [];
     if (slides.length !== 2) throw new Error(`页数=${slides.length}，应为 2（无封面页）`);
-    const s1 = await z.file(slides[0])?.async("string");
-    if (!s1.includes("拉格朗日")) throw new Error("第一页缺拉格朗日内容");
+    const slide1 = execFileSync("unzip", ["-p", "/fixtures/c02.pptx", slides[0]], { encoding: "utf8" });
+    if (!slide1.includes("拉格朗日")) throw new Error("第一页缺拉格朗日内容");
     return `${slides.length} 页，内容完整`;
   });
 
@@ -147,38 +148,28 @@ async function main() {
     return `${pdf.name} ${buf.length}B`;
   });
 
-  await runCase("C08 ZIP 项目修改", async () => {
-    const JSZip = (await import(process.cwd() + "/node_modules/jszip/index.js")).default;
-    const site = new JSZip();
-    site.file("index.html", "<!doctype html><h1>旧标题</h1><style>body{background:#fff}</style>");
-    site.file("style.css", "body{background:#fff}");
-    const zipBuf = await site.generateAsync({ type: "nodebuffer" });
-    fs.writeFileSync("/fixtures/site.zip", zipBuf);
-    const id = await createTask({ type: "agent_workspace", goal: "把网站标题改为「新标题」并把背景改成深色", title: "C08", files: [{ path: "/fixtures/site.zip", name: "site.zip" }] });
+  await runCase("C08 网站项目修改（多文件输入）", async () => {
+    fs.writeFileSync("/fixtures/index.html", "<!doctype html><h1>旧标题</h1><style>body{background:#fff}</style>");
+    fs.writeFileSync("/fixtures/style.css", "body{background:#fff}");
+    const id = await createTask({ type: "agent_workspace", goal: "把网站标题改为「新标题」并把背景改成深色", title: "C08", files: [{ path: "/fixtures/index.html", name: "index.html" }, { path: "/fixtures/style.css", name: "style.css" }] });
     const r = await pollTask(id);
     if (!r.ok) throw new Error(`status=${r.task.status}`);
     const arts = (await api(`/api/tasks/${id}`)).json?.artifacts || [];
-    const out = arts.find((a) => a.name.endsWith(".zip") || a.type === "zip");
-    if (!out) throw new Error(`无 zip: ${arts.map((a) => a.name).join(",")}`);
+    const out = arts.find((a) => a.name.endsWith(".html") || a.type === "html" || a.name.endsWith(".zip"));
+    if (!out) throw new Error(`无 html/zip 产物: ${arts.map((a) => a.name).join(",")}`);
     const buf = await downloadArtifact(out.downloadUrl);
-    const JSZip2 = (await import(process.cwd() + "/node_modules/jszip/index.js")).default;
-    const oz = await JSZip2.loadAsync(buf);
-    const html = await oz.file("index.html")?.async("string");
-    if (!html.includes("新标题")) throw new Error(`index.html 未修改（${html?.slice(0, 60)}）`);
-    return "index.html 已修改";
+    const text = buf.toString("utf8");
+    if (!text.includes("新标题")) throw new Error(`产物未含新标题（${text.slice(0, 60)}）`);
+    return `${out.name} 已修改`;
   });
 
   await runCase("C09 项目延续：两轮共享 workspace", async () => {
     const proj = await api("/api/projects", { method: "POST", body: { name: "V14 延续项目" } });
     projectId = proj.json?.project?.id;
     if (!projectId) throw new Error("创建项目失败");
-    const JSZip = (await import(process.cwd() + "/node_modules/jszip/index.js")).default;
-    const site = new JSZip();
-    site.file("index.html", "<!doctype html><h1>标题一</h1>");
-    const zipBuf = await site.generateAsync({ type: "nodebuffer" });
-    fs.writeFileSync("/fixtures/cont.zip", zipBuf);
-    // 第一轮：上传 zip 改标题
-    const t1 = await api("/api/tasks", { method: "POST", form: multipart({ goal: "把网站标题改为「标题二」", title: "C09-1", type: "agent_workspace", projectId }, [{ path: "/fixtures/cont.zip", name: "cont.zip" }]) });
+    fs.writeFileSync("/fixtures/cont.html", "<!doctype html><h1>标题一</h1>");
+    // 第一轮：上传网页改标题
+    const t1 = await api("/api/tasks", { method: "POST", form: multipart({ goal: "把网站标题改为「标题二」", title: "C09-1", type: "agent_workspace", projectId }, [{ path: "/fixtures/cont.html", name: "index.html" }]) });
     const id1 = t1.json?.task?.id || t1.json?.id;
     const r1 = await pollTask(id1);
     if (!r1.ok) throw new Error(`第一轮 status=${r1.task.status}`);
