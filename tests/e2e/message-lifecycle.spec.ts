@@ -12,7 +12,7 @@ async function selectModel(page: any, model: string) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/chat");
   await expect(page.locator('[data-testid="chat-input"]')).toBeVisible({ timeout: 20_000 });
 });
 
@@ -157,7 +157,7 @@ test("TEST12 旧格式对话迁移不崩溃", async ({ page }) => {
       null
     ]));
   });
-  await page.goto("/");
+  await page.goto("/chat");
   // 应用不崩溃，且最近对话被自动恢复
   await expect(page.locator('[data-testid="chat-input"]')).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".msg-parts.user .msg-text").last()).toContainText("第二轮");
@@ -168,7 +168,7 @@ test("TEST12 旧格式对话迁移不崩溃", async ({ page }) => {
 
 test("TEST13 移动端布局", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/chat");
   await expect(page.locator('[data-testid="chat-input"]')).toBeVisible({ timeout: 20_000 });
   // 移动端侧栏默认收起（fixed 移出视口）
   await expect(page.locator(".sidebar")).not.toBeInViewport();

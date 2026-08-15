@@ -102,6 +102,13 @@ export default function TaskDetailPage() {
     }
   }
 
+  // WP9：当前 Agent 阶段（最新 progress.stage）——Hooks 必须在任何条件 return 之前
+  const currentStage = useMemo(() => {
+    const progressEvents = allEvents.filter((e) => e.type === "progress" && e.payload?.stage);
+    const latest = progressEvents[progressEvents.length - 1];
+    return latest ? String(latest.payload.stage) : "";
+  }, [allEvents]);
+
   if (!detail) {
     return (
       <main className="home-shell">
@@ -113,12 +120,6 @@ export default function TaskDetailPage() {
 
   const { task, steps, artifacts } = detail;
 
-  // WP9：当前 Agent 阶段（最新 progress.stage）
-  const currentStage = useMemo(() => {
-    const progressEvents = allEvents.filter((e) => e.type === "progress" && e.payload?.stage);
-    const latest = progressEvents[progressEvents.length - 1];
-    return latest ? String(latest.payload.stage) : "";
-  }, [allEvents]);
   const statusMeta = STATUS_META[task.status] || STATUS_META.queued;
   const canPause = task.status === "running" || task.status === "planning";
   const canResume = task.status === "paused" || task.status === "waiting_user";
