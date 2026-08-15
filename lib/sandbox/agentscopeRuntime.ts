@@ -131,7 +131,8 @@ export class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
         chat_model_config: {
           type: "deepseek_credential",
           credential_id: credential.credential_id,
-          model: process.env.AGENTSCOPE_MODEL?.trim() || "deepseek-v4-pro",
+          // V1.3 WP10：executorModel 优先（policy 指定），否则 env/默认
+          model: request.model || process.env.AGENTSCOPE_MODEL?.trim() || "deepseek-v4-pro",
           parameters: {}
         }
       });

@@ -63,6 +63,17 @@ test("CSV 明确转换 → artifact + deterministic（简单任务不用 Agent�
   assert.equal(policy.runtime.runtime, "deterministic");
 });
 
+
+test("V1.3 WP10：模型角色分离（planner/executor/vision 独立选择）", () => {
+  const policy = planExecutionPolicy(input({ workspaceNeeded: true, visionNeeded: true, artifactKinds: ["file"], taskType: "vision_file_transform" }));
+  assert.ok(policy.plannerModel, "应选 planner 模型");
+  assert.ok(policy.executorModel, "应选 executor 模型");
+  assert.ok(policy.visionModel, "应选 vision 模型");
+  assert.ok(policy.executorModel !== policy.visionModel, "executor 与 vision 模型应不同");
+  // 简单任务可相等（chat 无 workspace：不设 executorModel）
+  const simple = planExecutionPolicy(input({ artifactKinds: ["pptx"], taskType: "artifact_generation" }));
+  assert.equal(simple.executorModel, undefined);
+});
 test("FORCE_AGENTSCOPE=1：工作区任务优先 AgentScope（benchmark/验收开关）", () => {
   const old = process.env.FORCE_AGENTSCOPE;
   process.env.FORCE_AGENTSCOPE = "1";

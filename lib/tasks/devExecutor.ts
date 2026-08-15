@@ -294,6 +294,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
         jobId,
         prompt,
         maxTurns: 15,
+        model: policy?.executorModel || undefined,
         visionMd: vision.visionMd,
         fileManifest: true,
         skills: input.skills ? [input.skills] : [],

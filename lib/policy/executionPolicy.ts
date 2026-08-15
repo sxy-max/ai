@@ -30,6 +30,11 @@ export type ExecutionPolicy = {
   /** 模型角色（ModelPolicyEngine 据此选模型）。 */
   modelRole: "chat" | "planner" | "content" | "agent" | "vision" | "reasoning";
   model?: string;
+  /** V1.3 WP10：规划/执行/视觉/验证模型分离（简单任务可相等）。 */
+  plannerModel?: string;
+  executorModel?: string;
+  visionModel?: string;
+  validationModel?: string;
   runtime: RuntimeSelection;
   reasoningMode: "none" | "auto" | "high";
   budget: BudgetDecision;
@@ -134,6 +139,13 @@ export function planExecutionPolicy(input: ExecutionPolicyInput): ExecutionPolic
     ? (["pptx", "xlsx", "csv", "html", "markdown", "docx"].includes(req.artifactKinds[0]) ? req.artifactKinds[0] : undefined)
     : undefined;
 
+  // V1.3 WP10：模型角色分离（planner/executor/vision；简单任务可相等）。
+  // 从 availableModels 经 ModelPolicyEngine 选（capability-safe）。
+  const { selectModel } = require("./modelPolicy") as typeof import("./modelPolicy");
+  const plannerPick = selectModel({ role: "planner", availableModels: input.availableModels });
+  const executorPick = selectModel({ role: "agent", availableModels: input.availableModels });
+  const visionPick = selectModel({ role: "vision", availableModels: input.availableModels });
+
   return {
     taskType: req.taskType,
     executor,
@@ -146,6 +158,9 @@ export function planExecutionPolicy(input: ExecutionPolicyInput): ExecutionPolic
     timeoutMs: executor === "workspace" ? 15 * 60 * 1000 : executor === "artifact" ? 10 * 60 * 1000 : 5 * 60 * 1000,
     retry: { maxAttempts, repairMode },
     runtime,
+    plannerModel: plannerPick.model || undefined,
+    executorModel: executor === "workspace" ? (executorPick.model || plannerPick.model || undefined) : undefined,
+    visionModel: req.visionNeeded ? (visionPick.model || undefined) : undefined,
     policySource: "ExecutionPolicyEngine:rules",
   };
 }
