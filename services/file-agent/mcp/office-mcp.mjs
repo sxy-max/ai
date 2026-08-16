@@ -34,10 +34,13 @@ async function renderXlsx(sheets) {
 async function renderDocx(markdown) {
   const { generateDocx } = await import("../lib/generators/docx");
   const { GeneratorError } = await import("../lib/generators/types");
-  return generateDocx({ message: markdown }).catch((e) => {
+  const output = await generateDocx({ message: markdown }).catch((e) => {
     if (e instanceof GeneratorError) throw e;
     throw new Error("DOCX 渲染失败：" + (e instanceof Error ? e.message : String(e)));
   });
+  // ArtifactGenerator 返回 { filename, mime, kind, content: Buffer }
+  if (!output || !Buffer.isBuffer(output.content)) throw new Error("DOCX 渲染结果非法");
+  return output.content;
 }
 
 async function renderPdf(html) {
