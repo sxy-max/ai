@@ -33,7 +33,7 @@ export type RuleVerdict = {
 };
 
 const MODIFY_VERBS = /修改|改|调整|重构|重做|修复|改成|按照|根据|照着|模仿|复制|重建|更新|编辑|处理/;
-const GENERATE_VERBS = /做|制作|生成|创建|写|给我|出一份|做一份|整理成|转成|转换成|导出|做成|整理|总结|汇总|统计|制作出/;
+const GENERATE_VERBS = /做|制作|生成|创建|写|给我|出一份|做一份|整理成|转成|转换成|导出|做成|整理|总结|汇总|统计|分析|整合|打包/;
 const PAGE_COUNT = /(\d+)\s*页|(一|两|三|四|五|六|七|八|九|十)\s*页/;
 const PAGE_CN: Record<string, number> = { 一: 1, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
 
@@ -80,6 +80,27 @@ export function applyRules(input: PreflightInput): RuleVerdict {
   const isGenerate = GENERATE_VERBS.test(goal);
   const kind = artifactKindFromGoal(goal);
 
+  // 0. 综合任务（多类附件 + 修改意图）：能力聚合（coding+vision+spreadsheet+…），
+  //    契约 = 主要产物（zip/html 优先于数据类）；单类附件走各自规则；
+  //    Office 明确产物（PPT/Excel/Word/PDF）走规则 3（内容由 Claude Code 组织）
+  if (isModify && (input.attachments?.length ?? 0) >= 2 && (hasImage || hasSpreadsheet || hasArchive || hasCodeFile)
+      && kind !== "pptx" && kind !== "xlsx" && kind !== "csv" && kind !== "docx" && kind !== "pdf") {
+    const caps: DirectiveCapability[] = ["coding"];
+    if (hasImage) caps.push("vision");
+    if (hasSpreadsheet) caps.push("spreadsheet");
+    if (/网站|网页|页面|html|前端|web/i.test(goal)) caps.push("browser");
+    const kind = /zip|打包/.test(goal) ? "zip" : artifactKindFromGoal(goal);
+    return {
+      taskType: hasImage ? "vision_file_transform" : "file_transform",
+      capabilities: caps,
+      deliveryContract: { kind: kind || undefined, minCount: 1, validate: "format", mustUseVision: hasImage, mustChangeFiles: true },
+      workspaceMode: input.projectId ? "project" : "task",
+      reasoning: "auto",
+      profile: "workspace",
+      needsModelClassify: false,
+      reason: `composite: ${caps.join("+")}${kind ? ` → ${kind}` : ""}`,
+    };
+  }
   // 1. 图片 + 修改（非 Office 产物）→ 截图改网站/图改任务（最高优先：视觉必须进入执行）。
   //    Office 产物（PPT/Excel/Word/PDF）带图片 → 走规则 3：图片是参考素材，产物是文件
   if (hasImage && isModify && kind !== "pptx" && kind !== "xlsx" && kind !== "csv" && kind !== "docx" && kind !== "pdf") {

@@ -76,6 +76,30 @@ export class FakeClaudeCodeAdapter implements AgentRuntimeAdapter {
       files.push({ name: `output/${filename}` });
       await onEvent({ type: "artifacts", files });
       await onEvent({ type: "result", result: `已生成 ${filename}（${output.content.length} bytes）` });
+    } else if (!quickMode && kind === "zip") {
+      // zip 交付：把 output/ 现有文件打包为真实 zip（Claude Code 打包语义）
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const existing = fs.existsSync(outputDir) ? fs.readdirSync(outputDir) : [];
+      for (const f of existing) {
+        if (f.endsWith(".zip")) continue;
+        zip.file(f, fs.readFileSync(path.join(outputDir, f)));
+      }
+      zip.file("交付说明.md", `# 任务交付\n\n原始要求：${request.prompt.slice(0, 300)}\n`);
+      const buf = await zip.generateAsync({ type: "nodebuffer" });
+      const filename = `项目包${request.repair && request.repair.round > 0 ? `-r${request.repair.round}` : ""}.zip`;
+      fs.writeFileSync(path.join(outputDir, filename), buf);
+      files.push({ name: `output/${filename}` });
+      await onEvent({ type: "artifacts", files });
+      await onEvent({ type: "result", result: `已打包 ${filename}（${buf.length} bytes）` });
+    } else if (!quickMode) {
+      // workspace 任务无明确 kind（如"修改 ZIP 项目"）：Claude Code 至少交付一个文件
+      const filename = `交付说明${request.repair && request.repair.round > 0 ? `-r${request.repair.round}` : ""}.md`;
+      const content = `# 任务交付说明\n\n原始要求：${request.prompt.slice(0, 300)}\n\n（fake adapter 模拟 Claude Code 在容器内完成工作并交付文件）`;
+      fs.writeFileSync(path.join(outputDir, filename), content);
+      files.push({ name: `output/${filename}` });
+      await onEvent({ type: "artifacts", files });
+      await onEvent({ type: "result", result: `已交付 ${filename}` });
     } else {
       const repairNote = request.repair ? `\n[validation feedback 已接收] ${request.repair.failures.map((f) => f.code).join("、")}` : "";
       await onEvent({ type: "result", result: `模拟回答：${request.prompt.slice(0, 200)}${repairNote}` });

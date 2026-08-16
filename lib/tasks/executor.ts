@@ -34,9 +34,27 @@ export async function executeStep(ctx: StepContext): Promise<StepResult> {
   }
 }
 
-/** 统一入口：Preflight directive（由 worker 构建）+ workspace → Claude Code 容器。 */
+/** 统一入口：Preflight directive（由 worker 构建）+ workspace → Claude Code 容器。
+ *  本 Goal：directive 按步骤 goal 编译——任务级全文判定会串步骤契约
+ *  （"整合 csv + 重构网站 + 打包 zip" 每步应有自己的能力/契约）。 */
 async function runClaudeCodeStep(ctx: StepContext, directiveOverride?: import("../preflight/directive").ExecutionDirective): Promise<StepResult> {
   const files = await taskFiles(ctx.task.id);
+  const base = directiveOverride ?? ctx.directive;
+  let directive = base;
+  if (base && ctx.step.goal !== ctx.task.goal) {
+    try {
+      const { buildDirective } = await import("../preflight/build");
+      const { attachmentsFromFiles } = await import("../preflight/attachments");
+      directive = await buildDirective({
+        goal: ctx.step.goal,
+        attachments: attachmentsFromFiles(files.map((f) => ({ filename: String(f.filename), mime: String(f.mime || "") }))),
+        projectId: ctx.projectId,
+        taskTypeHint: ctx.step.worker_type,
+      });
+    } catch {
+      directive = base; // 步级编译失败回退任务级
+    }
+  }
   return runDevStep({
     taskId: ctx.task.id,
     stepId: ctx.step.id,
@@ -45,7 +63,7 @@ async function runClaudeCodeStep(ctx: StepContext, directiveOverride?: import(".
     projectId: ctx.projectId,
     files: files.map((f) => ({ id: String(f.id), filename: String(f.filename) })),
     skills: ctx.skills,
-    directive: directiveOverride ?? ctx.directive,
+    directive,
     signal: ctx.signal,
     emit: ctx.emit
   }, { policy: ctx.policy });

@@ -236,24 +236,12 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     let directive: ExecutionDirective | undefined;
     try {
       const { buildDirective } = await import("../preflight/build");
+      const { attachmentsFromFiles } = await import("../preflight/attachments");
       const { providerHealthRegistry } = await import("../policy/providerHealth");
       const files = await taskFiles(task.id);
       directive = await buildDirective({
         goal: task.goal,
-        attachments: files.map((f) => {
-          const name = String(f.filename);
-          const mime = String(f.mime || "");
-          return {
-            kind: mime.startsWith("image/") ? "image"
-              : /\.zip$/i.test(name) ? "archive"
-              : /\.(xlsx|csv)$/i.test(name) ? "spreadsheet"
-              : /\.(docx|doc)$/i.test(name) ? "document"
-              : /\.pdf$/i.test(name) ? "pdf"
-              : "file",
-            mime,
-            name,
-          };
-        }),
+        attachments: attachmentsFromFiles(files.map((f) => ({ filename: String(f.filename), mime: String(f.mime || "") }))),
         projectId: task.project_id,
         taskTypeHint: task.type,
         health: providerHealthRegistry,
@@ -368,8 +356,24 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       const context = await buildPlanContext(task);
       const executionPlan = buildExecutionPlan(task, context.files);
       const artifacts = await listTaskArtifacts(task.id);
+      // 本 Goal：完成契约与 Preflight directive 对齐（步级 directive 按步骤编译；
+      // 任务级契约=directive.deliveryContract，避免 executionPlan 全文判定串步骤）
+      const completionContract = directive?.deliveryContract.kind || (directive?.deliveryContract.minCount ?? 0) > 0
+        ? {
+            expectations: directive?.deliveryContract.kind
+              ? [{
+                  kind: directive.deliveryContract.kind as string,
+                  minCount: directive.deliveryContract.minCount ?? 1,
+                  validate: directive.deliveryContract.validate,
+                  pageConstraint: directive.deliveryContract.pageConstraint,
+                }]
+              : [],
+            minArtifacts: directive?.deliveryContract.minCount ?? 1,
+            validationPolicy: "strict" as const,
+          }
+        : executionPlan.contract;
       // WP12：格式验证（HTML/CSV/JSON/ZIP/PPTX/MD）——不合格进入 repair loop
-      const verdict = await validateTaskCompletion(task.id, artifacts, executionPlan.contract, async (artifactId, filename, kind) => {
+      const verdict = await validateTaskCompletion(task.id, artifacts, completionContract, async (artifactId, filename, kind) => {
         const { validateArtifactFormat } = await import("../artifacts/validator");
         return validateArtifactFormat(artifactId, filename, kind);
       });
