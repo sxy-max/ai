@@ -80,19 +80,16 @@ test("Task 创建：queued + task.created 事件", async () => {
   assert.equal(events[0]?.type, "task.created");
 });
 
-test("Leader 规则规划：分析+表格+PPT 任务", () => {
+test("Leader 规则规划：单一 agent 步骤（本 Goal：Preflight 编译能力，Claude Code 决定 HOW）", () => {
   const plan = P().planFromRules(
     { goal: "分析这些资料，给我做一个总结，整理一份 Excel，做一个 PPT" } as unknown as Parameters<typeof import("../lib/leader/planner").planFromRules>[0],
     { files: [{ filename: "材料.md" }] }
   );
-  const kinds = plan.map((step) => step.worker_type);
-  assert.ok(kinds.includes("general"), "应有分析步骤");
-  assert.ok(kinds.includes("artifact"), "应有产物步骤");
-  const artifactGoals = plan.filter((s) => s.worker_type === "artifact").map((s) => s.goal.toLowerCase()).join(" ");
-  assert.ok(artifactGoals.includes("xlsx") || artifactGoals.includes("表格"), "应有表格步骤");
-  assert.ok(artifactGoals.includes("pptx") || artifactGoals.includes("ppt"), "应有 PPT 步骤");
-  // seq 连续
-  plan.forEach((step, index) => assert.equal(step.seq, index + 1));
+  assert.equal(plan.length, 1, "必须为单一步骤");
+  assert.equal(plan[0].worker_type, "dev", "必须是 dev（Claude Code 工作区）步骤");
+  assert.equal(plan[0].phase, "RUN_AGENT");
+  assert.equal(plan[0].goal, "分析这些资料，给我做一个总结，整理一份 Excel，做一个 PPT", "步骤 goal = 用户原始要求");
+  assert.equal(plan[0].seq, 1);
 });
 
 test("agent_workspace 类型任务强制走 dev 工作区链（不按关键词兜底）", () => {
