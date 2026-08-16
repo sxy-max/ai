@@ -3,14 +3,13 @@
 // 运行方式（本地 ssh 编排）：
 //   1. 启动本脚本的 runner 容器（后台）：
 //      ssh tencent-ai "sudo docker run -d --name goai-rec-runner --network go-ai-net --env-file /opt/ai-client/.env \
-//        -u root -v /tmp/cloud-recovery.mjs:/rec.mjs -v /tmp/rec:/rec ai-client:v1.6 node /rec.mjs \
+//        -u root -v /tmp/cloud-recovery.mjs:/rec.mjs -v /tmp/rec:/rec ai-client:v1.7 node /rec.mjs \
 //        >/dev/null && echo started"
-//   2. 本地等任务进入执行态（/tmp/rec/state.json 出现 "running"）后：
-//      ssh tencent-ai "sudo docker rm -f ai-task-worker && sleep 120 && \
-//        sudo docker run -d --name ai-task-worker --network go-ai-net --restart unless-stopped \
-//          -v /opt/ai-client/data:/data --env-file /opt/ai-client/.env \
-//          ai-client:v1.6 node scripts/task-worker.cjs"
-//   3. 脚本自动完成剩余验证（任务 completed + 真实产物 + 无重复产物）。
+//   2. 本地等任务进入执行态（/tmp/rec/state.json 出现 "readyForKill"）后：
+//      ssh tencent-ai "sudo docker rm -f ai-task-worker go-ai-file-agent && sleep 120 && \
+//        sudo docker run -d --name ai-task-worker ... ai-client:v1.7 node scripts/task-worker.cjs && \
+//        sudo docker run -d --name go-ai-file-agent ... go-ai-file-agent:claude"
+//   3. 脚本自动完成剩余验证（任务 completed + 真实产物）。
 //
 // 判据：任务最终 completed 且产物 ≥1；若期间 worker 被杀（state.json 记录 kill 信号），
 // 恢复后同一任务续跑完成，不重开空任务、不重复注册产物版本。
