@@ -2,6 +2,7 @@
 
 import type { TaskEventType } from "./types";
 import type { ExecutionPolicy } from "../policy/executionPolicy";
+import type { ExecutionDirective } from "../preflight/directive";
 
 export type TaskFileInfo = {
   id: string;
@@ -34,6 +35,8 @@ export type StepContext = {
   skills?: string;
   /** V1.2：执行策略（由 worker 在规划阶段生成；dev 步骤据此选 runtime/预算）。 */
   policy?: ExecutionPolicy;
+  /** 本 Goal：Preflight 执行指令（WHAT+CONSTRAINT+CAPABILITY；所有智能步骤共用）。 */
+  directive?: ExecutionDirective;
   signal: AbortSignal;
   emit: (type: TaskEventType, payload?: Record<string, unknown>) => Promise<void>;
 };

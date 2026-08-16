@@ -33,6 +33,28 @@ export type SandboxRunRequest = {
   timeoutMs?: number;
   /** 外部取消信号（任务取消/超时）。 */
   signal?: AbortSignal;
+  /** 本 Goal：Preflight 执行指令（WHAT+CONSTRAINT+CAPABILITY，容器据此挂 MCP/工具/契约）。 */
+  directive?: {
+    taskType?: string;
+    mainModel?: string;
+    fallbackModels?: string[];
+    capabilities?: string[];
+    mcpServers?: string[];
+    tools?: string[];
+    deliveryContract?: Record<string, unknown>;
+    reasoning?: string;
+    profile?: string;
+    workspaceMode?: string;
+  };
+  /** 本 Goal：Go AI Validation 失败证据回交（同一工作上下文继续修，不重开空任务）。 */
+  repair?: {
+    round: number;
+    maxRounds: number;
+    feedback: string;
+    failures: Array<{ code: string; detail: string }>;
+  };
+  /** 是否续接上一个 Claude Code 会话（同 workspace 多轮）。 */
+  continueSession?: boolean;
 };
 
 export type SandboxRunResult =

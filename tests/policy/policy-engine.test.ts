@@ -34,8 +34,8 @@ test("ZIP 项目修改 → workspace + agent runtime（不退化成 chat）", ()
   const policy = planExecutionPolicy(input({ workspaceNeeded: true, artifactKinds: ["zip", "file"], taskType: "project_agent", toolsNeeded: true }));
   assert.equal(policy.executor, "workspace");
   assert.equal(policy.modelRole, "agent");
-  assert.equal(policy.runtime.runtime, "agentscope"); // V1.5：AgentScope 主路径
-  assert.equal(policy.runtime.fallbackRuntimes[0], "claude-code");
+  assert.equal(policy.runtime.runtime, "claude-code"); // 本 Goal：Claude Code 唯一主 Harness
+  assert.equal(policy.runtime.fallbackRuntimes[0], "agentscope");
   assert.equal(policy.tools.includes("archive.extract"), true);
   assert.equal(policy.tools.includes("archive.pack"), true);
   assert.equal(policy.retry.maxAttempts, 3);
@@ -74,14 +74,17 @@ test("V1.3 WP10：模型角色分离（planner/executor/vision 独立选择）",
   const simple = planExecutionPolicy(input({ artifactKinds: ["pptx"], taskType: "artifact_generation" }));
   assert.equal(simple.executorModel, undefined);
 });
-test("FORCE_AGENTSCOPE=1：工作区任务优先 AgentScope（benchmark/验收开关）", () => {
+test("FORCE_AGENTSCOPE=1 + AGENTSCOPE_URL：工作区任务走 AgentScope（legacy 开关）", () => {
   const old = process.env.FORCE_AGENTSCOPE;
+  const oldUrl = process.env.AGENTSCOPE_URL;
   process.env.FORCE_AGENTSCOPE = "1";
+  process.env.AGENTSCOPE_URL = "http://agent-runtime:8000";
   try {
     const policy = planExecutionPolicy(input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "file_transform" }));
     assert.equal(policy.runtime.runtime, "agentscope");
   } finally {
     if (old === undefined) delete process.env.FORCE_AGENTSCOPE; else process.env.FORCE_AGENTSCOPE = old;
+    if (oldUrl === undefined) delete process.env.AGENTSCOPE_URL; else process.env.AGENTSCOPE_URL = oldUrl;
   }
 });
 
@@ -90,8 +93,8 @@ test("AgentScope 不可用（未在 availableRuntimes）→ 不选它", () => {
     ...input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "workspace_agent" }),
     availableRuntimes: ["claude-code"],
   });
-  assert.equal(policy.runtime.runtime, "claude-code"); // AgentScope 不可用 → fallback
-  assert.equal(policy.runtime.fallbackRuntimes[0], "claude-code");
+  assert.equal(policy.runtime.runtime, "claude-code"); // 默认主 Harness
+  assert.equal(policy.runtime.fallbackRuntimes[0], "agentscope"); // legacy fallback 保留
 });
 
 test("简单文件任务 → 2 次修复尝试", () => {

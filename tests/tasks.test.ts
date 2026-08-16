@@ -14,6 +14,8 @@ import { closeRedis } from "../lib/db/redis";
 
 // 产物目录指向临时目录（before 中动态 import 确保 env 生效）
 process.env.ARTIFACTS_ROOT = path.join(os.tmpdir(), "goai-artifacts-test");
+// 本 Goal：本地无 file-agent 容器——任务级测试注入 FakeClaudeCodeAdapter（验证完整执行链）
+process.env.WORKSPACES_ROOT = path.join(os.tmpdir(), "goai-workspaces-tasks-test");
 
 let repo: typeof import("../lib/tasks/repo");
 let worker: typeof import("../lib/tasks/worker");
@@ -27,9 +29,15 @@ before(async () => {
     import("../lib/leader/planner"),
     import("../lib/tasks/artifacts")
   ]);
+  // 本 Goal：任务级测试统一经 Claude Code 主 Harness（fake adapter 模拟容器契约）
+  const { setAdapterOverride } = await import("../lib/sandbox/adapterOverride");
+  const { FakeClaudeCodeAdapter } = await import("../lib/sandbox/fakeAdapter");
+  setAdapterOverride(new FakeClaudeCodeAdapter(process.env.WORKSPACES_ROOT));
 });
 
 after(async () => {
+  const { setAdapterOverride } = await import("../lib/sandbox/adapterOverride");
+  setAdapterOverride(null);
   await closeDb();
   await closeRedis();
 });

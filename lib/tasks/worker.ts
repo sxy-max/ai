@@ -11,6 +11,7 @@ import { notifyTaskFinished } from "./notify";
 import { WorkspaceManager } from "../workspace/service";
 import { requirementsFromPlan } from "../policy/capabilities";
 import { planExecutionPolicy, type ExecutionPolicy } from "../policy/executionPolicy";
+import type { ExecutionDirective } from "../preflight/directive";
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 import {
@@ -230,6 +231,36 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       availableRuntimes: runtimeAvailability(),
       availableModels,
     });
+    // 本 Goal：Preflight 编译 Execution Directive（WHAT+CONSTRAINT+CAPABILITY）。
+    // best-effort：失败不阻塞任务（容器侧有默认模型与工具集）；成功后所有智能步骤共用。
+    let directive: ExecutionDirective | undefined;
+    try {
+      const { buildDirective } = await import("../preflight/build");
+      const { providerHealthRegistry } = await import("../policy/providerHealth");
+      const files = await taskFiles(task.id);
+      directive = await buildDirective({
+        goal: task.goal,
+        attachments: files.map((f) => {
+          const name = String(f.filename);
+          const mime = String(f.mime || "");
+          return {
+            kind: mime.startsWith("image/") ? "image"
+              : /\.zip$/i.test(name) ? "archive"
+              : /\.(xlsx|csv)$/i.test(name) ? "spreadsheet"
+              : /\.(docx|doc)$/i.test(name) ? "document"
+              : /\.pdf$/i.test(name) ? "pdf"
+              : "file",
+            mime,
+            name,
+          };
+        }),
+        projectId: task.project_id,
+        taskTypeHint: task.type,
+        health: providerHealthRegistry,
+        availableModels,
+      });
+      console.log(`[task-worker]   directive: ${directive.capabilities.join("+")} → ${directive.mainModel} (${directive.policySource})`);
+    } catch { directive = undefined; }
     // V1.3 WP2：创建 Durable Job（Task=意图，Job=执行；重试时 attempt 递增）
     job = await createJob({
       taskId: task.id,
@@ -289,6 +320,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
           userMemory: context.userMemory,
           skills: context.skills,
           policy,
+          directive,
           signal: runSignal,
           emit: (type: TaskEventType, payload: Record<string, unknown> = {}) => emitTaskEvent(task.id, type, payload)
         });

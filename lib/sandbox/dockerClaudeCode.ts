@@ -113,6 +113,10 @@ export class GoFileAgentAdapter implements AgentRuntimeAdapter {
       memory: request.memory ?? [],
       style: request.style ?? "",
       skills: request.skills ?? [],
+      // 本 Goal：Preflight 指令与 Validation 反馈原样透传（容器侧挂 MCP/工具/契约）
+      directive: request.directive,
+      repair: request.repair,
+      continueSession: request.continueSession ?? false,
     };
 
     let upstream: Response;

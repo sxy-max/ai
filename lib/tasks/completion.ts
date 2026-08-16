@@ -98,7 +98,7 @@ export async function validateTaskCompletion(
   const formatFailures = results.filter((r) => !r.ok);
 
   const policyOk = contract.validationPolicy === "lenient"
-    ? byExpectation.some((e) => e.satisfied)
+    ? byExpectation.length === 0 || byExpectation.some((e) => e.satisfied)
     : missing.length === 0;
   const minOk = artifacts.length >= contract.minArtifacts;
   const formatOk = formatFailures.length === 0;

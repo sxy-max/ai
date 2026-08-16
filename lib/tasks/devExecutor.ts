@@ -38,6 +38,7 @@ export const AGENT_WORK_INSTRUCTION = `【工作环境说明】你不是网页�
 import type { JobEvent, JobStatus } from "../job/events";
 import { validateTaskCompletion, type TaskCompletionContract } from "./completion";
 import type { ExecutionPolicy } from "../policy/executionPolicy";
+import type { ExecutionDirective } from "../preflight/directive";
 import { advanceLoop, INITIAL_LOOP, type AgentLoopState } from "../agent/loop";
 import { compareVisionContexts, feedbackInstruction } from "../vision/verification";
 import { renderHtmlToDataUrl } from "../vision/screenshot";
@@ -118,6 +119,8 @@ export type DevStepInput = {  taskId: string;
   files: Array<{ id: string; filename: string }>;
   /** V1.2 WP28：技能文本（SkillResolver 解析后；注入 Agent Runtime context）。 */
   skills?: string;
+  /** 本 Goal：Preflight 执行指令（WHAT+CONSTRAINT+CAPABILITY；容器据此挂 MCP/工具/契约）。 */
+  directive?: ExecutionDirective;
   signal: AbortSignal;
   emit: (type: TaskEventType, payload?: Record<string, unknown>) => Promise<void>;
 };
@@ -192,9 +195,9 @@ async function queryToolCallIncrement(sessionId: string): Promise<void> {
 
 export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRuntimeAdapter; workspacesRoot?: string; describeVision?: VisionDescribe; policy?: ExecutionPolicy }): Promise<{ summary: string }> {
   // 1. runtime 就绪（V1.2：按 ExecutionPolicy 选 runtime；默认 Claude Code；测试可注入 fake）
-  //    AgentScope 仅在 policy 指定且其就绪检查通过时切换——不替换稳定 ClaudeCode 链
+  //    测试注入点：adapterOverride（本地无容器时 FakeClaudeCodeAdapter）；生产恒 null
   const policy = deps?.policy;
-  let adapter = deps?.adapter;
+  let adapter = deps?.adapter || (await import("../sandbox/adapterOverride")).getAdapterOverride();
   let runtimeId = policy?.runtime?.runtime || "claude-code";
   if (!adapter) {
     if (runtimeId === "agentscope" && process.env.AGENTSCOPE_URL?.trim()) {
@@ -311,18 +314,36 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     }, null, 2)
   );
 
-  const runOnce = async (prompt: string, attempt: number): Promise<JobRunOutcome> => {
+  const runOnce = async (prompt: string, attempt: number, repair?: { round: number; maxRounds: number; feedback: string; failures: Array<{ code: string; detail: string }> }): Promise<JobRunOutcome> => {
     ws.writeTaskSpec({ title: prompt.slice(0, 60), prompt, visionMd: vision.visionMd, fileManifest: true });
+    // 本 Goal：directive 透传（Preflight 编译的 WHAT+CONSTRAINT+CAPABILITY）；repair 证据回交
+    let lastResult = "";
     const outcome = await runAgentJob(
       {
         conversationId,
         jobId,
         prompt,
         maxTurns: 15,
-        model: policy?.executorModel || undefined,
+        model: policy?.executorModel || input.directive?.mainModel || undefined,
         visionMd: vision.visionMd,
         fileManifest: true,
         skills: input.skills ? [input.skills] : [],
+        directive: input.directive
+          ? {
+              taskType: input.directive.taskType,
+              mainModel: input.directive.mainModel,
+              fallbackModels: input.directive.fallbackModels,
+              capabilities: input.directive.capabilities,
+              mcpServers: input.directive.mcpServers,
+              tools: input.directive.tools,
+              deliveryContract: { ...input.directive.deliveryContract },
+              reasoning: input.directive.reasoning,
+              profile: input.directive.profile,
+              workspaceMode: input.directive.workspaceMode,
+            }
+          : undefined,
+        repair,
+        continueSession: attempt > 0, // repair 轮续接同一会话/工作区，不重开空任务
         workspace: ws,
         adapter,
         store,
@@ -348,8 +369,13 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           return { id: artifact.id, kind: artifact.type as ArtifactKind, name: artifact.name, mime: artifact.mime, size: artifact.size, status: artifact.status as "ready", downloadUrl: `/api/artifacts/${artifact.id}` };
         }
       },
-      (event) => emitJobEvent(input.emit, event, recorder, session.id)
+      (event) => {
+        emitJobEvent(input.emit, event, recorder, session.id);
+        // quick 模式（普通问答）：收集 Claude Code 最终文本作为 final answer
+        if (event.type === "result") lastResult = String(event.summary || "");
+      }
     );
+    outcome.lastResult = lastResult;
     if (attempt === 0 && (outcome.status !== "done" || !outcome.result.ok)) {
       // 第一次执行失败 → 不自动重试（错误原因明确，留给用户重试）
       return outcome;
@@ -404,14 +430,26 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
 
   // WP3：结构化纠错循环 Execute→Validate→Repair→Validate（有限次数）
   // 图片任务（vision.scanned>0）与 ZIP 属复杂工作区：允许 3 次；简单文件任务 2 次
-  const maxAttempts = staged > 0 && (input.goal.toLowerCase().includes("zip") || vision.scanned > 0) ? 3 : 2;
+  const directive = input.directive;
+  // 本 Goal：quick 模式（普通问答/轻量回答）→ 无产物要求，final answer = Claude Code 文本
+  const quickMode = directive?.profile === "quick"
+    || (directive?.deliveryContract.validate === "none" && !directive?.deliveryContract.kind && !directive?.deliveryContract.minCount);
+  const maxAttempts = quickMode ? 1 : staged > 0 && (input.goal.toLowerCase().includes("zip") || vision.scanned > 0) ? 3 : 2;
   const attemptsDir = path.join(ws.dirs.agent, "attempts");
   await (await import("node:fs")).promises.mkdir(attemptsDir, { recursive: true });
-  const simpleContract: TaskCompletionContract = {
-    expectations: [{ kind: undefined, filenamePattern: "*", minCount: 1, validate: "format" }],
-    minArtifacts: 1,
-    validationPolicy: "strict"
-  };
+  const simpleContract: TaskCompletionContract = quickMode
+    ? { expectations: [], minArtifacts: 0, validationPolicy: "lenient" }
+    : {
+        expectations: [{
+          // 契约按 kind 匹配（artifact.name 去扩展名，filenamePattern 只匹配无扩展名形式）
+          kind: directive?.deliveryContract.kind as TaskCompletionContract["expectations"][number]["kind"],
+          filenamePattern: "*",
+          minCount: directive?.deliveryContract.minCount ?? 1,
+          validate: directive?.deliveryContract.validate === "none" ? "none" : "format",
+        }],
+        minArtifacts: directive?.deliveryContract.minCount ?? 1,
+        validationPolicy: "strict",
+      };
 
   let outcome = await runOnce(buildPrompt(input.goal), 0);
   let collected = await collectOutputs();
@@ -458,7 +496,12 @@ ${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并
     );
     await input.emit("progress", { detail: `第 ${attempt} 次执行未满足交付契约（${verdict.reason}），正在自动修复…` });
 
-    outcome = await runOnce(record.repairInstruction, attempt);
+    outcome = await runOnce(record.repairInstruction, attempt, {
+      round: attempt,
+      maxRounds: maxAttempts,
+      feedback: record.repairInstruction,
+      failures: [{ code: verdict.reason, detail: verdict.missing.map((m) => m.filenamePattern || m.kind || "非空文件").join("、") || "未满足交付契约" }],
+    });
     collected = await collectOutputs();
     verdict = await validateTaskCompletion(input.taskId, await listTaskArtifacts(input.taskId), simpleContract, formatValidator);
   }
@@ -479,6 +522,11 @@ ${visionFeedback ? `${visionFeedback}\n` : ""}请实际修改/生成文件，并
     throw new Error(`DEV_RUN_${error}`);
   }
   const total = outcome.artifactCount + collected;
+  // 本 Goal：quick 模式（普通问答）→ final answer 文本
+  if (quickMode) {
+    const answer = outcome.lastResult?.trim() || "任务已完成。";
+    return { summary: answer.slice(0, 4000) };
+  }
   // 中间 dev 步骤（检查/分析）可无产物；任务级产物校验由 worker 在完成阶段执行
   if (total === 0) {
     return { summary: "工作区步骤执行完成（本步骤无产物交付）" };

@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientArtifact } from "../artifacts/types";
-import type { AgentRuntimeAdapter } from "../sandbox/adapter";
+import type { AgentRuntimeAdapter, SandboxRunRequest } from "../sandbox/adapter";
 import { statusForTool, statusLabel, toolLabel } from "../job/events";
 import type { JobEvent, JobStatus } from "../job/events";
 import type { WorkspaceManager } from "../workspace/service";
@@ -29,6 +29,12 @@ export type RunAgentJobInput = {
   taskTitle?: string;
   visionContext?: string;
   timeoutMs?: number;
+  /** 本 Goal：Preflight 执行指令（透传 adapter → 容器）。 */
+  directive?: SandboxRunRequest["directive"];
+  /** 本 Goal：Validation 失败证据（repair 轮次）。 */
+  repair?: SandboxRunRequest["repair"];
+  /** 续接上一会话（同 workspace 多轮）。 */
+  continueSession?: boolean;
   workspace: WorkspaceManager;
   adapter: AgentRuntimeAdapter;
   store: JobStore;
@@ -40,6 +46,8 @@ export type JobRunOutcome = {
   status: "done" | "failed";
   result: { ok: boolean; exitCode?: number; error?: string; partial?: boolean };
   artifactCount: number;
+  /** 本 Goal：quick 模式（普通问答）Claude Code 最终文本。 */
+  lastResult?: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -93,6 +101,9 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
     skills: input.skills,
     visionMd: input.visionMd,
     timeoutMs,
+    directive: input.directive,
+    repair: input.repair,
+    continueSession: input.continueSession,
   };
 
   let result: { ok: boolean; exitCode?: number; error?: string; partial?: boolean };

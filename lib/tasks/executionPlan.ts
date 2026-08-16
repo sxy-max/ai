@@ -6,7 +6,7 @@
 
 import type { TaskRow } from "./types";
 import type { TaskCompletionContract } from "./completion";
-import { artifactKindFromGoal } from "./executor";
+import { artifactKindFromGoal } from "../preflight/rules";
 
 /** 有限 Step 类型（WP10）：LLM 不得任意创造无法执行的步骤。 */
 export type ExecutionStepType =
@@ -96,11 +96,11 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
       timeout: DEFAULT_TIMEOUT,
       capabilities: ["generator", "llm-content"],
       contract: {
-        expectations: kind ? [{ kind, minCount: 1, validate: "format" }] : [],
+        expectations: kind ? [{ kind: kind as string, minCount: 1, validate: "format" }] : [],
         minArtifacts: 1,
         validationPolicy: "strict"
       },
-      stepsTemplate: stepsTemplateFor("artifact", kind, hasImages, false)
+      stepsTemplate: stepsTemplateFor("artifact", kind ?? null, hasImages, false)
     };
   }
 

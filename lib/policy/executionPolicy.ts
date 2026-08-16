@@ -56,8 +56,9 @@ export type ExecutionPolicyInput = {
   providerHealth?: { model: string; status: string }[];
 };
 
-/** 运行时偏好（按任务类型；deterministic-first）。V1.5：AgentScope 2.0 为主 Harness——
- * 工作区任务默认 AgentScope（claude-code 作 fallback）；FORCE_CLAUDE_CODE=1 可强制旧路径。 */
+/** 运行时偏好（按任务类型；deterministic-first）。本 Goal：Claude Code 为唯一主 Harness——
+ * 工作区任务默认 Claude Code（file-agent 容器）；AgentScope 保留为 legacy（AGENTSCOPE_URL
+ * 配置且 FORCE_AGENTSCOPE=1 时才进入，生产默认路径不经过 AgentScope Agent Loop）。 */
 function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId[]): RuntimeSelection {
   const has = (id: RuntimeId) => availableRuntimes.includes(id);
   const prefer = (primary: RuntimeId, fallbacks: RuntimeId[], reason: string): RuntimeSelection => ({
@@ -70,11 +71,11 @@ function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId
   if (!requirements.workspaceNeeded) {
     return prefer("deterministic", [], "no-workspace: deterministic generator");
   }
-  if (process.env.FORCE_CLAUDE_CODE === "1") {
-    return prefer("claude-code", ["agentscope"], "forced-claude-code (legacy path)");
+  if (process.env.FORCE_AGENTSCOPE === "1" && process.env.AGENTSCOPE_URL?.trim()) {
+    return prefer("agentscope", ["claude-code"], "forced-agentscope (legacy path)");
   }
-  // V1.5：AgentScope 主路径（云端矩阵 9/9 在 AgentScope 驱动下通过；claude-code 是 specialized fallback）
-  return prefer("agentscope", ["claude-code"], "workspace-task: AgentScope primary (V1.5 harness)");
+  // 本 Goal：Claude Code 主 Harness（file-agent 容器）；agentscope 仅显式 legacy
+  return prefer("claude-code", ["agentscope"], "workspace-task: Claude Code primary (current architecture)");
 }
 
 /** 工具集合按任务授权（WP11：与 Tool Registry 2.0 工具名一致；不是把所有工具都给 Agent）。 */
