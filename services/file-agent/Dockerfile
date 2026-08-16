@@ -6,8 +6,9 @@
 FROM node:24-alpine
 
 # 运行依赖：chromium（browser-mcp/office.pdf 用）、bash、工具链
+# claude 版本固定 2.1.228（与既有验证过的 go-ai-file-agent 容器一致；latest 行为漂移风险）
 RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont bash curl unzip \
-  && npm i -g @anthropic-ai/claude-code@latest \
+  && npm i -g @anthropic-ai/claude-code@2.1.228 \
   && npm cache clean --force
 
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
