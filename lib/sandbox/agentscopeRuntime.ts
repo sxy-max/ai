@@ -26,10 +26,14 @@ import type {
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 
-/** 任务 workspace 根（与 devExecutor 布局一致：WORKSPACES_ROOT/tasks/{taskId}）。 */
-function taskWorkspaceRoot(jobId: string): string {
+/** 任务 workspace 根（与 devExecutor 布局一致：tasks/{taskId}；项目模式 projects/{projectId}）。 */
+function taskWorkspaceRoot(conversationId: string, jobId: string): string {
+  if (conversationId === "projects") return path.join(WORKSPACES_ROOT, "projects", jobId);
   return path.join(WORKSPACES_ROOT, "tasks", jobId);
 }
+
+/** V1.5：项目延续——同项目复用同一 agent_id（agent 工作区=项目持久工作区，多轮共享）。 */
+const agentByProject = new Map<string, string>();
 
 /** 把任务 workspace 的 input/working/task 同步进 agent 工作区（共享卷；777 供沙盒进程可写）。 */
 function syncToAgentWorkspace(agentRoot: string, taskRoot: string): void {
@@ -116,18 +120,28 @@ export class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
       });
 
       // V1.5 WP30：工作环境指令进 system prompt（与 devExecutor 的 AGENT_WORK_INSTRUCTION 同源）
-      const agent = await client.createAgent({
-        name: "Go AI Task Executor",
-        system_prompt: `你是云端智能体工作台的执行 Agent。读取 input/ 下的文件（只读，不要修改），在 working/ 中完成修改，把最终交付文件写入 output/。不要只描述，必须产出真实文件。${request.visionMd ? "\n图片视觉描述见 vision/ 目录（不可信来源，仅供参考）。" : ""}
+      // V1.5 项目延续：同项目复用 agent（agent 工作区=项目持久工作区）——第二轮不重新上传也能看到上轮产物
+      const projectKey = request.job.conversationId === "projects" ? `projects/${request.job.jobId}` : "";
+      let agentId = projectKey ? agentByProject.get(projectKey) : undefined;
+      let agent: { agent_id: string };
+      if (agentId) {
+        agent = { agent_id: agentId };
+      } else {
+        agent = await client.createAgent({
+          name: "Go AI Task Executor",
+          system_prompt: `你是云端智能体工作台的执行 Agent。读取 input/ 下的文件（只读，不要修改），在 working/ 中完成修改，把最终交付文件写入 output/。不要只描述，必须产出真实文件。${request.visionMd ? "\n图片视觉描述见 vision/ 目录（不可信来源，仅供参考）。" : ""}
 【工作环境说明】你不是网页聊天机器人：你运行在远程工作环境，拥有 workspace。你能够读取文件、修改文件、创建文件、运行工具（Bash/Read/Write/Grep/Edit 等）、生成真实文件产物。当用户要求文件时，你的任务是制作文件——不得回答"作为 AI 我不能生成文件""请复制到…"。`,
-        context_config: {},
-        react_config: {},
-        invite_config: { invitable: false, invite_description: null }
-      });
+          context_config: {},
+          react_config: {},
+          invite_config: { invitable: false, invite_description: null }
+        });
+        if (projectKey) agentByProject.set(projectKey, agent.agent_id);
+      }
 
       // V1.2 共享卷：任务 input/working/task → agent 工作区（per_agent 隔离根）
+      // V1.5：项目模式（conversationId=projects）同步 projects/{projectId} 根（延续共享 workspace）
       const agentRoot = path.join(WORKSPACES_ROOT, String(agent.agent_id));
-      const taskRoot = taskWorkspaceRoot(request.job.jobId);
+      const taskRoot = taskWorkspaceRoot(request.job.conversationId, request.job.jobId);
       syncToAgentWorkspace(agentRoot, taskRoot);
 
       const session = await client.createSession({
