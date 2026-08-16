@@ -11,7 +11,7 @@ FROM node:24-alpine
 # Docker Desktop 偶发 apk 解包 I/O error → 重试循环
 RUN sed -i 's|https://dl-cdn.alpinelinux.org|https://mirrors.aliyun.com|g' /etc/apk/repositories \
   && for i in 1 2 3; do apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont bash curl unzip zip python3 py3-pip && break || sleep 5; done \
-  && npm i -g @anthropic-ai/claude-code@2.1.228 --registry=https://registry.npmmirror.com \
+  && npm i -g @anthropic-ai/claude-code@2.1.228 --registry=https://registry.npmjs.org \
   && npm cache clean --force
 
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
