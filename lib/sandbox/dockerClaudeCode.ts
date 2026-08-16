@@ -52,18 +52,18 @@ export class GoFileAgentAdapter implements AgentRuntimeAdapter {
   }
 
   async prepare(): Promise<RuntimePrepareResult> {
-    try {
-      const probe = await fetch(`${this.agentUrl}/health`, { signal: AbortSignal.timeout(3000), cache: "no-store" });
-      if (!probe.ok) return { ok: false, error: `file-agent 容器健康检查失败（HTTP ${probe.status}）` };
-      return { ok: true, detail: "claude-code-file-agent 就绪" };
-    } catch {
+    // DNS 偶发 EAI_AGAIN（docker 内置 DNS 抖动）——重试 3 次
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        await fetch(`${this.agentUrl}/task`, { method: "HEAD", signal: AbortSignal.timeout(3000) });
-        return { ok: true, detail: "claude-code-file-agent 可达" };
+        const probe = await fetch(`${this.agentUrl}/health`, { signal: AbortSignal.timeout(5000), cache: "no-store" });
+        if (probe.ok) return { ok: true, detail: "claude-code-file-agent 就绪" };
+        if (attempt === 3) return { ok: false, error: `file-agent 容器健康检查失败（HTTP ${probe.status}）` };
       } catch {
-        return { ok: false, error: "file-agent 容器不可达（go-ai-file-agent:18082 未运行？）" };
+        if (attempt === 3) return { ok: false, error: "file-agent 容器不可达（go-ai-file-agent:18082 未运行？）" };
       }
+      await new Promise((r) => setTimeout(r, 800 * attempt));
     }
+    return { ok: false, error: "file-agent 容器不可达（go-ai-file-agent:18082 未运行？）" };
   }
 
   async collectOutputs(workspaceRoot: string): Promise<CollectedOutput[]> {
