@@ -41,8 +41,9 @@ const PAGE_CN: Record<string, number> = { 一: 1, 两: 2, 三: 3, 四: 4, 五: 5
 export function artifactKindFromGoal(goal: string): string | undefined {
   const g = goal.toLowerCase();
   if (/ppt|演示文稿|幻灯片|presentation/i.test(g)) return "pptx";
-  if (/(excel|xlsx|表格|电子表格|数据表|spreadsheet)/i.test(g)) return "xlsx";
-  if (/\bcsv\b/i.test(g)) return "csv";
+  if (/(excel|xlsx|表格|电子表格|spreadsheet)/i.test(g)) return "xlsx";
+  // csv：目标动词紧邻才算目标产物；"读取/分析 data.csv" 的 csv 是输入材料
+  if (/(转成|导出|生成|做成|整理成|输出)\s*csv\b|csv\s*(文件|表格|格式)/i.test(g)) return "csv";
   if (/word|docx|文档|文书|报告书/i.test(g)) return "docx";
   if (/\bpdf\b/i.test(g)) return "pdf";
   if (/html|网页|网站|页面|前端/i.test(g)) return "html";

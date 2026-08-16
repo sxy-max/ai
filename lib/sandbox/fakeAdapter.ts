@@ -63,11 +63,33 @@ export class FakeClaudeCodeAdapter implements AgentRuntimeAdapter {
     await onEvent({ type: "text", text: `[fake adapter] 收到任务：${request.prompt.slice(0, 80)}` });
 
     const contract = request.directive?.deliveryContract as Record<string, unknown> | undefined;
-    const kind = (typeof contract?.kind === "string" ? contract.kind : undefined) as ArtifactKind | undefined;
-    const quickMode = request.directive?.profile === "quick" || (contract && contract.validate === "none" && !kind);
+    const rawKind = typeof contract?.kind === "string" ? contract.kind : undefined;
+    const kind = (rawKind && rawKind !== "zip" ? rawKind : undefined) as ArtifactKind | undefined;
+    const quickMode = request.directive?.profile === "quick" || (contract && contract.validate === "none" && !kind && rawKind !== "zip");
 
     const files: { name: string }[] = [];
-    if (!quickMode && kind && isGeneratorKind(kind)) {
+    if (rawKind === "zip") {
+      // zip 契约：真实打包 workspace（含 input 同步的内容与本次修改）到 output/project.zip
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      const walk = (dir: string, rel: string) => {
+        if (!fs.existsSync(dir)) return;
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.name === ".go-ai" || e.name === "CLAUDE.md") continue;
+          const p = path.join(dir, e.name);
+          const r = rel ? `${rel}/${e.name}` : e.name;
+          if (e.isDirectory()) walk(p, r);
+          else zip.file(r, fs.readFileSync(p));
+        }
+      };
+      walk(wsRoot, "");
+      const buf = await zip.generateAsync({ type: "nodebuffer" }) as Buffer;
+      const name = `project${request.repair && request.repair.round > 0 ? `-r${request.repair.round}` : ""}.zip`;
+      fs.writeFileSync(path.join(outputDir, name), buf);
+      files.push({ name: `output/${name}` });
+      await onEvent({ type: "artifacts", files });
+      await onEvent({ type: "result", result: `已打包 ${name}（${buf.length} bytes）` });
+    } else if (!quickMode && kind && isGeneratorKind(kind)) {
       // 真实生成器产出真实格式文件（验证执行链与格式契约，不测生成器本身）
       const output = await generateArtifact(kind, { message: request.prompt });
       const suffix = request.repair && request.repair.round > 0 ? `-r${request.repair.round}` : "";

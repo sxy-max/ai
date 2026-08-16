@@ -145,9 +145,9 @@ export function planFromRules(task: TaskRow, context: PlanContext): PlanStep[] {
     steps.push({ seq: steps.length + 1, worker_type: "artifact", title: "生成 PDF 文件", goal: `把内容排版生成真实 PDF 文件：${task.goal}` });
   }
 
-  // 5. 表格（按目标细分：csv 请求 → csv，其余 → xlsx）
-  if (want(["表格", "excel", "xlsx", "csv", "数据表", "电子表格", "整理成表"])) {
-    const wantsCsv = /csv/.test(goal);
+  // 5. 表格（按目标细分：csv 请求 → csv，其余 → xlsx；"读取/分析 CSV" 的 csv 是输入不是目标）
+  if (want(["表格", "excel", "xlsx", "数据表", "电子表格", "整理成表"])) {
+    const wantsCsv = /(转成|导出|生成|做成|整理成)\s*csv|csv\s*(文件|表格|格式)/i.test(goal);
     steps.push({ seq: steps.length + 1, worker_type: "artifact", title: wantsCsv ? "生成 CSV 文件" : "生成表格文件", goal: `根据已有材料生成 ${wantsCsv ? "csv" : "xlsx"} 表格：${task.goal}` });
   }
 

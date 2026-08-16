@@ -42,7 +42,7 @@ async function pollTask(taskId, timeoutMs = 900_000) {
   while (Date.now() < deadline) {
     const r = await api(`/api/tasks/${taskId}`);
     const t = r.json?.task || {};
-    if (t.status === "completed") return { ok: true, task: t };
+    if (t.status === "completed") return { ok: true, task: { ...t, artifacts: r.json?.artifacts || [] } };
     if (t.status === "failed" || t.status === "cancelled") return { ok: false, task: t };
     await new Promise((res) => setTimeout(res, 5000));
   }
