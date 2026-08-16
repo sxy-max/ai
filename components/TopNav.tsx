@@ -54,7 +54,6 @@ export default function TopNav() {
           <a href="/tasks" className={pathname.startsWith("/tasks") ? "active" : ""}>任务</a>
           <a href="/files" className={pathname.startsWith("/files") ? "active" : ""}>文件</a>
           <a href="/projects" className={pathname.startsWith("/projects") ? "active" : ""}>项目</a>
-          <a href="/workbench" className={pathname.startsWith("/workbench") ? "active" : ""}>工作区</a>
           <a href="/settings" className={pathname.startsWith("/settings") ? "active" : ""}>设置</a>
         </div>
         <div className="notif-wrap" ref={bellRef}>

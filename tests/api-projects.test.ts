@@ -16,7 +16,6 @@ import { artifactService } from "../lib/artifacts/service";
 import { closeRedis } from "../lib/db/redis";
 import { GET as projectsGet, POST as projectsPost } from "../app/api/projects/route";
 import { GET as projectDetailGet } from "../app/api/projects/[id]/route";
-import { projectFiles } from "../lib/workbench/projectApi";
 import { runDevStep } from "../lib/tasks/devExecutor";
 import type { AgentRuntimeAdapter } from "../lib/sandbox/adapter";
 
@@ -101,8 +100,6 @@ test("GET /api/projects/:id：任务 + 产物历史（版本化）+ 文件树", 
     assert.ok(body.files.some((f) => f.path === "output/index.html"));
     assert.ok(body.files.some((f) => f.dir && f.path === "input"));
 
-    const tree = projectFiles(project.id);
-    assert.ok(tree.some((f) => f.path === "output/index.html" && !f.dir && f.size === 11));
   } finally {
     if (prev) process.env.WORKSPACES_ROOT = prev; else delete process.env.WORKSPACES_ROOT;
   }

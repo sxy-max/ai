@@ -19,7 +19,14 @@ export type StepResult = { summary: string };
 /** 主分发：所有智能步骤统一经 Claude Code 主 Harness（差异 = directive）。 */
 export async function executeStep(ctx: StepContext): Promise<StepResult> {
   switch (ctx.step.worker_type) {
-    case "general": return runClaudeCodeStep(ctx);   // 普通问答：轻量 profile（文本答案）
+    // 分析/咨询步骤：quick 语义（Claude Code 直接文本回答，无产物契约）——
+    // 即使任务级 directive 是 workspace（如"分析输入材料"前置步骤），本步骤也不要求产物
+    case "general": {
+      const quickDirective = ctx.directive
+        ? { ...ctx.directive, profile: "quick" as const, deliveryContract: { validate: "none" as const }, capabilities: ["general" as const] }
+        : undefined;
+      return runClaudeCodeStep(ctx, quickDirective);
+    }
     case "research": return runClaudeCodeStep(ctx);  // 网页研究：search+browser，契约=调研报告
     case "artifact": return runClaudeCodeStep(ctx);  // Office/网页产物：契约=真实格式+页数
     case "dev": return runClaudeCodeStep(ctx);       // 工作区/项目：完整能力面
@@ -28,7 +35,7 @@ export async function executeStep(ctx: StepContext): Promise<StepResult> {
 }
 
 /** 统一入口：Preflight directive（由 worker 构建）+ workspace → Claude Code 容器。 */
-async function runClaudeCodeStep(ctx: StepContext): Promise<StepResult> {
+async function runClaudeCodeStep(ctx: StepContext, directiveOverride?: import("../preflight/directive").ExecutionDirective): Promise<StepResult> {
   const files = await taskFiles(ctx.task.id);
   return runDevStep({
     taskId: ctx.task.id,
@@ -38,7 +45,7 @@ async function runClaudeCodeStep(ctx: StepContext): Promise<StepResult> {
     projectId: ctx.projectId,
     files: files.map((f) => ({ id: String(f.id), filename: String(f.filename) })),
     skills: ctx.skills,
-    directive: ctx.directive,
+    directive: directiveOverride ?? ctx.directive,
     signal: ctx.signal,
     emit: ctx.emit
   }, { policy: ctx.policy });

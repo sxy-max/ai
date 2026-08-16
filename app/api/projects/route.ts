@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "../../../lib/auth";
-import { listProjects } from "../../../lib/workbench/projectApi";
+import { listProjects } from "../../../lib/projects/api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

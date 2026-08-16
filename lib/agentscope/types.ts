@@ -1,4 +1,4 @@
-import type { WorkbenchEvent } from "../workbench/types";
+/** AgentScope legacy 通道类型（本 Goal：AgentScope 退出主链，保留为 legacy adapter）。 */
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -36,4 +36,25 @@ export class AgentScopeError extends Error {
   }
 }
 
-export type { WorkbenchEvent };
+/* ---------- legacy 工作台事件（AgentScope 通道 eventMapper 使用；workbench 已退役） ---------- */
+
+export type RunFailureReason =
+  | "UPSTREAM_ERROR"
+  | "RUN_INCOMPLETE"
+  | "OUTPUT_NOT_FOUND"
+  | "INVALID_OUTPUT"
+  | "TEST_NOT_RUN"
+  | "TEST_FAILED";
+
+export type OutputEntry = { path: string; size: number; isDir: boolean };
+
+export type WorkbenchEvent =
+  | { kind: "status"; status: "running" }
+  | { kind: "text"; text: string }
+  | { kind: "tool_start"; name: string; callId?: string }
+  | { kind: "tool_result"; name: string; ok: boolean; callId?: string; output?: string }
+  | { kind: "candidate_complete" }
+  | { kind: "external_tool_call"; replyId: string; toolCalls: Array<{ id: string; name: string; input: string }> }
+  | { kind: "error"; code: string; message: string }
+  | { kind: "final"; status: "completed"; outputs: OutputEntry[] }
+  | { kind: "final"; status: "failed"; reason: RunFailureReason };
