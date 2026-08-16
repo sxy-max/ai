@@ -72,6 +72,17 @@ async function runCase(name, fn) {
   }
 }
 
+/** 从 /api/models 取一个可用的 opencode-go 模型令牌（chat 用真实签名）。 */
+async function chatToken() {
+  const r = await api("/api/models");
+  if (r.status !== 200) throw new Error(`models ${r.status}`);
+  const models = r.json?.models || [];
+  const m = models.find((x) => x.provider === "opencode-go" && !x.healthStatus || models[0]);
+  const picked = m || models[0];
+  if (!picked?.modelToken) throw new Error("无模型令牌");
+  return { token: picked.modelToken, model: picked.id || picked.model };
+}
+
 /** 准备 fixtures：site 文件 + CSV + 需求 + 参考图（reference.png 由部署命令 scp 预置）。 */
 function prepareFixtures() {
   fs.mkdirSync(FIXTURES, { recursive: true });
@@ -105,7 +116,8 @@ async function main() {
 
   // C01 普通问答：CLAUDE_CHAT_ENABLED=1 → /api/chat 由 Claude Code 执行
   await runCase("C01 普通问答（Claude Code Harness）", async () => {
-    const r = await api("/api/chat", { method: "POST", body: { provider: "opencode-go", model: "deepseek-v4-flash", modelToken: "any", messages: [{ role: "user", content: "用一句话解释什么是量子纠缠" }] } });
+    const ct = await chatToken();
+    const r = await api("/api/chat", { method: "POST", body: { provider: "opencode-go", model: ct.model, modelToken: ct.token, messages: [{ role: "user", content: "用一句话解释什么是量子纠缠" }] } });
     if (r.status !== 200) throw new Error(`chat http ${r.status}: ${r.text.slice(0, 120)}`);
     const lines = r.text.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     const text = lines.filter((e) => e.type === "text").map((e) => e.value || "").join("");
@@ -179,9 +191,10 @@ async function main() {
 
   // C07 图片问答：图片 → 视觉信息 → Claude Code 回答
   await runCase("C07 图片问答（视觉进入回答）", async () => {
+    const ct = await chatToken();
     const img = fs.readFileSync(`${FIXTURES}/reference.png`).toString("base64");
     const r = await api("/api/chat", { method: "POST", body: {
-      provider: "opencode-go", model: "deepseek-v4-flash", modelToken: "any",
+      provider: "opencode-go", model: ct.model, modelToken: ct.token,
       messages: [{ role: "user", content: "这张图里有什么？描述主要元素、颜色和布局", attachments: [{ kind: "image", name: "reference.png", mime: "image/png", dataUrl: `data:image/png;base64,${img}` }] }],
     } });
     if (r.status !== 200) throw new Error(`chat http ${r.status}`);

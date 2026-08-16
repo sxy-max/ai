@@ -1,5 +1,20 @@
 # Go AI — Execution State
 
+## 2026-08-16 V1.6 Architecture Convergence（Claude Code 唯一主 Harness）
+
+> 当前架构的唯一真相见仓库根 **CURRENT_EXECUTION_ARCHITECTURE.md**；本节为历史记录。
+
+**翻转**：V1.5 的「AgentScope 2.0 主 Harness」决策被本 Goal 取代——**Claude Code 是唯一主 Harness**。
+
+- Preflight 决策层（lib/preflight/）：directive/rules/models/build/attachments——任务编译器（WHAT+CONSTRAINT+CAPABILITY，无 HOW）；确定性规则优先，模糊才轻量分类
+- 执行器收敛：general/research/artifact/dev 四类步骤统一 runClaudeCodeStep（差异 = directive）
+- 主模型 Auto（capability→池→health→quota→compatibility）；coding 默认 deepseek-v4-flash；MiniMax=Vision Specialist
+- Validation 证据回交：repair 参数（round/feedback/failures）续接同工作区；xlsx/docx/pdf 格式校验 + pptx 页数契约
+- 普通问答统一：/api/chat CLAUDE_CHAT_ENABLED=1 → 容器 /chat（轻量 profile）
+- 删除：workbench（AgentScope 沙盒工作台）、sandbox manager/providers/runtimeProtocol（未接入死代码）；AgentScope legacy（FORCE_AGENTSCOPE 才进）
+- file-agent 容器 v2（services/file-agent/）：Claude Code CLI + MCP 工具箱（vision/browser/office/search）
+- 测试：typecheck + 457/457 + build + E2E 17/17；云端矩阵 scripts/cloud-final.mjs
+
 ## 2026-08-16 V1.5 Harness Convergence（REUSE-FIRST，进行中——Phase A 验证全过）
 
 **方向**：Go AI 从自研 Agent Runtime 收敛为「AgentScope 2.0 主 Harness + Go AI Product Layer」。不造 Harness，薄适配，真实执行。

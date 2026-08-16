@@ -39,7 +39,6 @@ RUN echo 'import "./mcp/office-mcp.mjs"' | npx esbuild --bundle --platform=node 
   && echo 'import "./mcp/search-mcp.mjs"' | npx esbuild --bundle --platform=node --format=esm \
     --outfile=mcp/search-mcp.bundle.mjs --external:playwright-core \
   && rm mcp/office-mcp.mjs mcp/browser-mcp.mjs mcp/search-mcp.mjs mcp/mcp-lite.mjs
-  && rm mcp/office-mcp.mjs mcp/browser-mcp.mjs mcp/search-mcp.mjs mcp/mcp-lite.mjs
 
 # 非 root 运行（workspace 挂载卷归 node）
 USER node
