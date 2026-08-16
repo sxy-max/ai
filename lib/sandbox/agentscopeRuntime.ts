@@ -102,10 +102,12 @@ export class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
     const client = this.client();
     try {
       // V1.5：模型通道统一 openai_credential（OpenAI 兼容，opencode-go 与 DeepSeek 直连通吃）
-      // base_url 优先 AGENTSCOPE_BASE_URL（opencode 通道），回退 DEEPSEEK_BASE_URL
-      const apiKey = process.env.OPENCODE_GO_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim();
-      if (!apiKey) return { ok: false, error: "AGENTSCOPE_CREDENTIAL_MISSING：缺少 OpenCode Go/DeepSeek key" };
+      // base_url 优先 AGENTSCOPE_BASE_URL；指向 deepseek 时用 DEEPSEEK_API_KEY（opencode 端点
+      // 按 UA 过滤，agentscope 的 SDK UA 会被 403——服务器 AgentScope 走 DeepSeek 直连）
       const baseUrl = process.env.AGENTSCOPE_BASE_URL?.trim() || process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com";
+      const useDeepSeek = baseUrl.includes("api.deepseek.com");
+      const apiKey = (useDeepSeek ? process.env.DEEPSEEK_API_KEY?.trim() : process.env.OPENCODE_GO_API_KEY?.trim()) || process.env.OPENCODE_GO_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim();
+      if (!apiKey) return { ok: false, error: "AGENTSCOPE_CREDENTIAL_MISSING：缺少 OpenCode Go/DeepSeek key" };
       const credential = await client.createCredential({
         type: "openai_credential",
         name: "Go AI Task Credential",
@@ -169,6 +171,27 @@ export class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
           case "text":
             await onEvent({ type: "text", text: String(event.text || "") });
             break;
+          // V1.5：外部工具协议——Go AI 执行 agent 暂停的工具调用并回投结果（agent 恢复循环）
+          case "external_tool_call": {
+            const { executeExternalTools } = await import("./externalToolExecutor");
+            const results = await executeExternalTools(
+              event.toolCalls.map((tc) => ({ id: tc.id, name: tc.name, input: tc.input })),
+              { workspaceRoot: agentRoot }
+            );
+            for (const r of results) {
+              await onEvent({ type: "tool", name: r.name, detail: r.output.slice(0, 500) });
+            }
+            await client.triggerRun({
+              agent_id: agent.agent_id,
+              session_id: session.session_id,
+              input: {
+                type: "external_execution_result",
+                reply_id: event.replyId,
+                execution_results: results.map((r) => ({ type: "tool_result", id: r.id, name: r.name, output: r.output, state: r.state })),
+              },
+            });
+            break;
+          }
           case "candidate_complete":
             sawComplete = true;
             break;

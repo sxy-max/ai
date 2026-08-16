@@ -28,6 +28,19 @@ export function mapAgentScopeEvent(event: AgentScopeNativeEvent): WorkbenchEvent
     case "REPLY_END":
       if (event.finished_reason === "completed" && event.error == null) return { kind: "candidate_complete" };
       return { kind: "error", code: "RUN_FAILED", message: "Agent run did not complete" };
+    case "REQUIRE_EXTERNAL_EXECUTION":
+      // V1.5：agent 暂停等外部工具执行（Go AI 侧执行后回投 EXTERNAL_EXECUTION_RESULT）
+      return {
+        kind: "external_tool_call",
+        replyId: typeof event.reply_id === "string" ? event.reply_id : "",
+        toolCalls: Array.isArray(event.tool_calls)
+          ? event.tool_calls.map((tc) => ({
+              id: typeof tc?.id === "string" ? tc.id : "",
+              name: typeof tc?.name === "string" ? tc.name : "tool",
+              input: typeof tc?.input === "string" ? tc.input : JSON.stringify(tc || {}),
+            }))
+          : [],
+      };
     default:
       return null;
   }
