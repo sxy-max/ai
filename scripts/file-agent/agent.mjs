@@ -154,7 +154,8 @@ function runTask(task, res) {
     };
   }
   const args = ["-p", task.prompt, "--permission-mode", "acceptEdits", "--max-turns", String(task.maxTurns || 15), "--output-format", "stream-json", "--verbose", "--model", task.model || "deepseek-v4-flash"];
-  if (Object.keys(mcpConfig).length) args.push("--mcp-config", JSON.stringify(mcpConfig));
+  // Claude Code --mcp-config 顶层必须是 { mcpServers: {...} }
+  if (Object.keys(mcpConfig).length) args.push("--mcp-config", JSON.stringify({ mcpServers: mcpConfig }));
   const env = { ...process.env };
   if (task.gatewayBaseUrl) { env.ANTHROPIC_BASE_URL = task.gatewayBaseUrl; env.ANTHROPIC_API_KEY = task.gatewayToken || "local-placeholder-token"; }
 
