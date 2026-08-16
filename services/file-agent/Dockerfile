@@ -7,7 +7,9 @@ FROM node:24-alpine
 
 # 运行依赖：chromium（browser-mcp/office.pdf 用）、bash、工具链
 # claude 版本固定 2.1.228（与既有验证过的 go-ai-file-agent 容器一致；latest 行为漂移风险）
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont bash curl unzip zip python3 py3-pip \
+# 中国网络：官方 alpine 源不可达（DNS 污染）→ 换 aliyun 镜像
+RUN sed -i 's|https://dl-cdn.alpinelinux.org|https://mirrors.aliyun.com|g' /etc/apk/repositories \
+  && apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont bash curl unzip zip python3 py3-pip \
   && npm i -g @anthropic-ai/claude-code@2.1.228 \
   && npm cache clean --force
 
@@ -33,7 +35,7 @@ RUN cd /app/mcp/vision-mcp && npm ci --omit=dev
 # stdin 入口 + cwd=/app：mcp 内 `../lib` 相对 /app 解析（本地验证同款命令，cwd=仓库根）
 RUN echo 'import "./mcp/office-mcp.mjs"' | npx esbuild --bundle --platform=node --format=esm \
     --outfile=mcp/office-mcp.bundle.mjs \
-    --external:playwright-core --external:xlsx --external:docx --external:pptxgenjs \
+    --external:playwright-core --external:@playwright/test --external:xlsx --external:docx --external:pptxgenjs \
     --external:jszip --external:pdfjs-dist --external:@napi-rs/canvas \
   && echo 'import "./mcp/browser-mcp.mjs"' | npx esbuild --bundle --platform=node --format=esm \
     --outfile=mcp/browser-mcp.bundle.mjs --external:playwright-core \

@@ -33,7 +33,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 # V1.4 WP49：系统 chromium——PDF 渲染（pdfGenerator）与 Browser Runtime 的云端路径
 # （playwright 浏览器缓存不进镜像；launch 时经 lib/chromium.ts 探测 executablePath）
-RUN apk add --no-cache chromium
+# 中国网络：官方 alpine 源不可达（DNS 污染）→ 换 aliyun 镜像
+RUN sed -i 's|https://dl-cdn.alpinelinux.org|https://mirrors.aliyun.com|g' /etc/apk/repositories \
+  && apk add --no-cache chromium
 # @playwright/test 仅被 esbuild 的 task-worker 引用（next build 不 trace）→ 手动拷入 standalone
 COPY --from=deps /app/node_modules/playwright ./node_modules/playwright
 COPY --from=deps /app/node_modules/playwright-core ./node_modules/playwright-core
