@@ -56,7 +56,8 @@ export type ExecutionPolicyInput = {
   providerHealth?: { model: string; status: string }[];
 };
 
-/** 运行时偏好（按任务类型；deterministic-first）。FORCE_AGENTSCOPE=1 时工作区任务优先 AgentScope（benchmark/验收用）。 */
+/** 运行时偏好（按任务类型；deterministic-first）。V1.5：AgentScope 2.0 为主 Harness——
+ * 工作区任务默认 AgentScope（claude-code 作 fallback）；FORCE_CLAUDE_CODE=1 可强制旧路径。 */
 function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId[]): RuntimeSelection {
   const has = (id: RuntimeId) => availableRuntimes.includes(id);
   const prefer = (primary: RuntimeId, fallbacks: RuntimeId[], reason: string): RuntimeSelection => ({
@@ -69,17 +70,11 @@ function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId
   if (!requirements.workspaceNeeded) {
     return prefer("deterministic", [], "no-workspace: deterministic generator");
   }
-  if (process.env.FORCE_AGENTSCOPE === "1") {
-    return prefer("agentscope", ["claude-code"], "forced-agentscope (benchmark/acceptance)");
+  if (process.env.FORCE_CLAUDE_CODE === "1") {
+    return prefer("claude-code", ["agentscope"], "forced-claude-code (legacy path)");
   }
-  if (requirements.artifactKinds.some((k) => k === "zip")) {
-    return prefer("claude-code", ["agentscope"], "zip-project: agent runtime required");
-  }
-  if (requirements.visionNeeded) {
-    // 图片+HTML：Claude Code 现网最稳；AgentScope 可用时同样满足（WP9 benchmark 后调整）
-    return prefer("claude-code", ["agentscope"], "vision-file: agent runtime required");
-  }
-  return prefer("claude-code", ["agentscope"], "workspace-task: agent runtime required");
+  // V1.5：AgentScope 主路径（云端矩阵 9/9 在 AgentScope 驱动下通过；claude-code 是 specialized fallback）
+  return prefer("agentscope", ["claude-code"], "workspace-task: AgentScope primary (V1.5 harness)");
 }
 
 /** 工具集合按任务授权（WP11：与 Tool Registry 2.0 工具名一致；不是把所有工具都给 Agent）。 */

@@ -34,8 +34,8 @@ test("ZIP 项目修改 → workspace + agent runtime（不退化成 chat）", ()
   const policy = planExecutionPolicy(input({ workspaceNeeded: true, artifactKinds: ["zip", "file"], taskType: "project_agent", toolsNeeded: true }));
   assert.equal(policy.executor, "workspace");
   assert.equal(policy.modelRole, "agent");
-  assert.equal(policy.runtime.runtime, "claude-code");
-  assert.equal(policy.runtime.fallbackRuntimes[0], "agentscope");
+  assert.equal(policy.runtime.runtime, "agentscope"); // V1.5：AgentScope 主路径
+  assert.equal(policy.runtime.fallbackRuntimes[0], "claude-code");
   assert.equal(policy.tools.includes("archive.extract"), true);
   assert.equal(policy.tools.includes("archive.pack"), true);
   assert.equal(policy.retry.maxAttempts, 3);
@@ -90,8 +90,8 @@ test("AgentScope 不可用（未在 availableRuntimes）→ 不选它", () => {
     ...input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "workspace_agent" }),
     availableRuntimes: ["claude-code"],
   });
-  assert.equal(policy.runtime.runtime, "claude-code");
-  assert.equal(policy.runtime.fallbackRuntimes[0], "agentscope");
+  assert.equal(policy.runtime.runtime, "claude-code"); // AgentScope 不可用 → fallback
+  assert.equal(policy.runtime.fallbackRuntimes[0], "claude-code");
 });
 
 test("简单文件任务 → 2 次修复尝试", () => {
