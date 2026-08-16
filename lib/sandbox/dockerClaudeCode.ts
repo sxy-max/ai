@@ -120,13 +120,13 @@ export class GoFileAgentAdapter implements AgentRuntimeAdapter {
     };
 
     let upstream: Response;
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
+    if (request.signal) {
+      if (request.signal.aborted) controller.abort();
+      else request.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
     try {
-      const controller = new AbortController();
-      const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
-      if (request.signal) {
-        if (request.signal.aborted) controller.abort();
-        else request.signal.addEventListener("abort", () => controller.abort(), { once: true });
-      }
       try {
         upstream = await fetch(`${this.agentUrl}/task`, {
           method: "POST",
@@ -135,71 +135,72 @@ export class GoFileAgentAdapter implements AgentRuntimeAdapter {
           signal: controller.signal,
           cache: "no-store",
         });
-      } finally {
-        clearTimeout(timeoutTimer);
+      } catch (error) {
+        if (isTimeoutError(error)) {
+          onEvent({ type: "error", message: "沙箱执行超时" });
+          return { ok: false, error: "sandbox_timeout", partial: false };
+        }
+        return this.fail(onEvent, "sandbox_unavailable", started);
       }
-    } catch (error) {
-      if (isTimeoutError(error)) {
-        onEvent({ type: "error", message: "沙箱执行超时" });
-        return { ok: false, error: "sandbox_timeout", partial: false };
+      // 注意：timeoutTimer 在响应头到达后继续生效（流挂死也必须超时，不能只覆盖建连）
+      if (!upstream.ok || !upstream.body) {
+        const detail = await upstream.text().catch(() => "");
+        return this.fail(onEvent, detail ? `sandbox_http_${upstream.status}: ${detail.slice(0, 200)}` : `sandbox_http_${upstream.status}`, started);
       }
-      return this.fail(onEvent, "sandbox_unavailable", started);
-    }
-    if (!upstream.ok || !upstream.body) {
-      const detail = await upstream.text().catch(() => "");
-      return this.fail(onEvent, detail ? `sandbox_http_${upstream.status}: ${detail.slice(0, 200)}` : `sandbox_http_${upstream.status}`, started);
-    }
 
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let exitCode: number | undefined;
-    let sawDone = false;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          let raw: RawContainerEvent;
-          try {
-            raw = JSON.parse(trimmed) as RawContainerEvent;
-          } catch {
-            continue;
-          }
-          if (raw.type === "agent_tool") {
-            await onEvent({ type: "tool", name: String(raw.name || "tool"), ...(typeof raw.detail === "string" ? { detail: raw.detail } : {}) });
-          } else if (raw.type === "agent_text") {
-            await onEvent({ type: "text", text: String(raw.text || "") });
-          } else if (raw.type === "agent_result") {
-            await onEvent({ type: "result", result: String(raw.result || "") });
-          } else if (raw.type === "artifacts" && Array.isArray(raw.files)) {
-            await onEvent({ type: "artifacts", files: (raw.files as unknown[]).map((f) => ({ name: String((f as { name?: unknown })?.name || "download") })) });
-          } else if (raw.type === "done") {
-            sawDone = true;
-            exitCode = typeof raw.exitCode === "number" ? raw.exitCode : undefined;
-            await onEvent({ type: "done", ...(exitCode !== undefined ? { exitCode } : {}), durationMs: Date.now() - started });
-          } else if (raw.type === "agent_error") {
-            await onEvent({ type: "error", message: String(raw.message || "agent error") });
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let exitCode: number | undefined;
+      let sawDone = false;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let raw: RawContainerEvent;
+            try {
+              raw = JSON.parse(trimmed) as RawContainerEvent;
+            } catch {
+              continue;
+            }
+            if (raw.type === "agent_tool") {
+              await onEvent({ type: "tool", name: String(raw.name || "tool"), ...(typeof raw.detail === "string" ? { detail: raw.detail } : {}) });
+            } else if (raw.type === "agent_text") {
+              await onEvent({ type: "text", text: String(raw.text || "") });
+            } else if (raw.type === "agent_result") {
+              await onEvent({ type: "result", result: String(raw.result || "") });
+            } else if (raw.type === "artifacts" && Array.isArray(raw.files)) {
+              await onEvent({ type: "artifacts", files: (raw.files as unknown[]).map((f) => ({ name: String((f as { name?: unknown })?.name || "download") })) });
+            } else if (raw.type === "done") {
+              sawDone = true;
+              exitCode = typeof raw.exitCode === "number" ? raw.exitCode : undefined;
+              await onEvent({ type: "done", ...(exitCode !== undefined ? { exitCode } : {}), durationMs: Date.now() - started });
+            } else if (raw.type === "agent_error") {
+              await onEvent({ type: "error", message: String(raw.message || "agent error") });
+            }
           }
         }
+      } catch (error) {
+        if (isTimeoutError(error)) {
+          onEvent({ type: "error", message: "沙箱执行超时" });
+          return { ok: false, error: "sandbox_timeout", partial: false };
+        }
+        return this.fail(onEvent, "sandbox_stream_interrupted", started);
       }
-    } catch (error) {
-      if (isTimeoutError(error)) {
-        onEvent({ type: "error", message: "沙箱执行超时" });
-        return { ok: false, error: "sandbox_timeout", partial: false };
-      }
-      return this.fail(onEvent, "sandbox_stream_interrupted", started);
-    }
 
-    if (!sawDone) {
-      return this.fail(onEvent, "sandbox_stream_ended_prematurely", started);
+      if (!sawDone) {
+        return this.fail(onEvent, "sandbox_stream_ended_prematurely", started);
+      }
+      return { ok: true, exitCode, durationMs: Date.now() - started, partial: exitCode !== undefined && exitCode !== 0 };
+    } finally {
+      clearTimeout(timeoutTimer);
     }
-    return { ok: true, exitCode, durationMs: Date.now() - started, partial: exitCode !== undefined && exitCode !== 0 };
   }
 
   private fail(onEvent: (event: SandboxRunEvent) => void, error: string, started: number): SandboxRunResult {

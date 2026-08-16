@@ -44,6 +44,12 @@ function startContainer(): Promise<{ port: number; requests: Record<string, unkn
           ].join("\n") + "\n");
           return;
         }
+        if (behavior.includes("cause-hang")) {
+          // 流挂死：发送头 + 一个事件后永不结束（Claude Code 卡死场景）
+          res.writeHead(200, { "content-type": "application/x-ndjson" });
+          res.write('{"type":"agent_tool","name":"Read"}\n');
+          return;
+        }
         res.writeHead(200, { "content-type": "application/x-ndjson" });
         res.end([
           '{"type":"agent_tool","name":"Read","detail":"read a.md"}',
@@ -160,4 +166,18 @@ test("6. 连接失败（服务未监听）→ sandbox_unavailable", async () => 
   const result = await adapter.run({ job: { conversationId: "c", jobId: "j" }, prompt: "x" }, () => {});
   assert.equal(result.ok, false);
   assert.equal(result.error, "sandbox_unavailable");
+});
+
+test("7. 流挂死（响应头已到但事件流永不结束）→ 仍按 timeoutMs 超时 sandbox_timeout", async () => {
+  const container = await startContainer();
+  try {
+    const adapter = new GoFileAgentAdapter({ agentUrl: `http://127.0.0.1:${container.port}`, timeoutMs: 400 });
+    const started = Date.now();
+    const result = await adapter.run({ job: { conversationId: "c", jobId: "j" }, prompt: "cause-hang" }, () => {});
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "sandbox_timeout");
+    assert.ok(Date.now() - started < 8000, "必须由超时终止，而非无限挂起");
+  } finally {
+    await container.close();
+  }
 });

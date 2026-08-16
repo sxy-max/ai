@@ -344,59 +344,43 @@ try {
   });
   assert.equal(forbidden.status, 403);
 
-  // Phase F：/api/tasks 对 artifact 任务实际执行确定性生成（不依赖沙箱/模型）
+  // Phase F：/api/tasks 异步任务契约（本 Goal：统一任务系统，同步产物生成已由
+  // worker 异步执行取代；完整执行闭环由 test:core fake adapter 与云端矩阵真实 Claude Code 覆盖）
   const pptxTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ message: "做两页 PPT：Go AI 文件处理功能" })
+    body: JSON.stringify({ goal: "做两页 PPT：Go AI 文件处理功能" })
   });
   assert.equal(pptxTask.status, 200);
   const pptxTaskData = await pptxTask.json();
   assert.equal(pptxTaskData.ok, true);
-  assert.equal(pptxTaskData.intent.artifactKind, "pptx");
-  assert.ok(Array.isArray(pptxTaskData.artifacts) && pptxTaskData.artifacts.length === 1);
-  const pptxArtifact = pptxTaskData.artifacts[0];
-  assert.equal(pptxArtifact.kind, "pptx");
-  assert.match(pptxArtifact.name, /\.pptx$/);
-  const pptxContent = await fetch(`http://127.0.0.1:${appPort}${pptxArtifact.downloadUrl}`, { headers: { cookie } });
-  assert.equal(pptxContent.status, 200);
-  const pptxBuf = Buffer.from(await pptxContent.arrayBuffer());
-  assert.ok(pptxBuf.length > 500, "pptx 过小");
-  assert.deepEqual(pptxBuf.subarray(0, 2), Buffer.from("PK"), "应为 zip");
+  assert.ok(pptxTaskData.task?.id, "任务应有 id");
+  assert.equal(pptxTaskData.task.status, "queued");
+  assert.ok(pptxTaskData.task.goal.includes("两页 PPT"));
 
-  const htmlTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
+  // 旧同步契约字段（message）已移除：goal 必填
+  const oldContract = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ message: "生成一个网页，标题：Go AI，内容包含 <script>alert(1)</script> 需要转义" })
+    body: JSON.stringify({ message: "做两页 PPT" })
   });
-  assert.equal(htmlTask.status, 200);
-  const htmlTaskData = await htmlTask.json();
-  assert.equal(htmlTaskData.artifacts[0].kind, "html");
-  const htmlText = await (await fetch(`http://127.0.0.1:${appPort}${htmlTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
-  assert.ok(htmlText.includes("&lt;script&gt;"), "HTML 未转义");
+  assert.equal(oldContract.status, 400);
 
-  const csvTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
+  const noGoal = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ message: "导出 csv：\n名字,年龄\n张三,28\n=SUM(A1:A9),30" })
+    body: JSON.stringify({})
   });
-  assert.equal(csvTask.status, 200);
-  const csvTaskData = await csvTask.json();
-  assert.equal(csvTaskData.artifacts[0].kind, "csv");
-  const csvText = await (await fetch(`http://127.0.0.1:${appPort}${csvTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
-  assert.ok(!csvText.includes(",=SUM"), "CSV 公式注入未中和");
-  assert.ok(csvText.includes("'=SUM"), "CSV 公式应被撇号前缀");
+  assert.equal(noGoal.status, 400);
 
-  const mdTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ message: "写一份 markdown 文档，主题：Go AI" })
-  });
-  assert.equal(mdTask.status, 200);
-  const mdTaskData = await mdTask.json();
-  assert.equal(mdTaskData.artifacts[0].kind, "markdown");
-  const mdText = await (await fetch(`http://127.0.0.1:${appPort}${mdTaskData.artifacts[0].downloadUrl}`, { headers: { cookie } })).text();
-  assert.ok(mdText.startsWith("# "), "Markdown 应为 # 开头");
+  // 列表可见新建任务（本测试环境无 worker，任务保持 queued；执行链不在集成测试内断言）
+  const taskList = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, { headers: { cookie } });
+  assert.equal(taskList.status, 200);
+  const listData = await taskList.json();
+  const list = Array.isArray(listData.tasks) ? listData.tasks : Array.isArray(listData) ? listData : [];
+  assert.ok(list.some((t) => t.id === pptxTaskData.task.id), "列表应包含新任务");
+
+  // 旧同步产物格式（HTML 转义 / CSV 公式中和 / Markdown 结构）已由 test:core 生成器测试覆盖
 
   // Phase G：agent workspace —— 上传图片 → .go-ai/manifest.json + .go-ai/vision/ 视觉上下文 → agent 任务完成
   const agentConv = "gconv";
@@ -434,7 +418,7 @@ try {
   assert.equal(observations.goMessagePayloads.length, 2);
   assert.equal(observations.visionPayloads.length, 3);
   assert.equal(observations.anthropicPayloads.length, 3);
-  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, artifact generators (pptx/html/csv/md), and agent workspace (manifest + vision context)");
+  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, async task contract (queued/validation), and agent workspace (manifest + vision context)");
 } finally {
   if (nextProcess && !nextProcess.killed) nextProcess.kill();
   await new Promise((resolve) => providerServer.close(resolve));
