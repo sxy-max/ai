@@ -6,7 +6,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 # 系统 chromium 已装（runner 阶段）；跳过 playwright 浏览器下载（省镜像）
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm ci
+# 中国网络：npm registry 换 npmmirror + 重试（本地网络对 registry.npmjs.org 大包断流）
+RUN npm config set registry https://registry.npmmirror.com \
+  && for i in 1 2 3; do npm ci && break || sleep 5; done
 
 FROM node:24-alpine AS build
 WORKDIR /app
@@ -33,9 +35,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 # V1.4 WP49：系统 chromium——PDF 渲染（pdfGenerator）与 Browser Runtime 的云端路径
 # （playwright 浏览器缓存不进镜像；launch 时经 lib/chromium.ts 探测 executablePath）
-# 中国网络：官方 alpine 源不可达（DNS 污染）→ 换 aliyun 镜像
+# 中国网络：官方 alpine 源不可达（DNS 污染）→ 换 aliyun 镜像 + 重试
 RUN sed -i 's|https://dl-cdn.alpinelinux.org|https://mirrors.aliyun.com|g' /etc/apk/repositories \
-  && apk add --no-cache chromium
+  && for i in 1 2 3; do apk add --no-cache chromium && break || sleep 5; done
 # @playwright/test 仅被 esbuild 的 task-worker 引用（next build 不 trace）→ 手动拷入 standalone
 COPY --from=deps /app/node_modules/playwright ./node_modules/playwright
 COPY --from=deps /app/node_modules/playwright-core ./node_modules/playwright-core
