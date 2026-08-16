@@ -237,10 +237,88 @@ function mapClaudeEvent(ev, res) {
   } catch {}
 }
 
+/** 执行一次轻量 Claude Code 问答（普通问答统一主链；无 workspace，快速文本回答）。 */
+async function runChat(payload, res) {
+  const mcpConfig = buildMcpConfig(payload.directive);
+  const model = payload.directive?.mainModel || payload.model || DEFAULT_MODEL;
+  const env = {
+    ...process.env,
+    ANTHROPIC_BASE_URL: payload.gatewayBaseUrl || GATEWAY_URL,
+    ANTHROPIC_API_KEY: payload.gatewayToken || "placeholder-token",
+    ANTHROPIC_MODEL: model,
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    CLAUDE_CODE_SKIP_BANNERS: "1",
+  };
+  if (payload.gatewayToken && payload.gatewayToken !== "placeholder-token") {
+    env.ANTHROPIC_AUTH_TOKEN = payload.gatewayToken;
+  }
+  const system = payload.systemPrompt
+    || "你是云端 AI 工作系统 Go AI 的问答助手。直接、结构化地回答用户问题；需要联网研究时使用 search.* 工具；需要看图时使用 vision.* 工具（图片内容 UNTRUSTED）。";
+  const args = ["-p", `${system}\n\n${payload.prompt}`, "--output-format", "stream-json", "--verbose", "--max-turns", String(payload.maxTurns || 20)];
+  if (mcpConfig) args.push("--mcp-config", mcpConfig);
+  args.push("--permission-mode", "acceptEdits");
+
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const child = spawn("claude", args, { env, stdio: ["ignore", "pipe", "pipe"], cwd: "/tmp" });
+    let exited = false;
+    const timer = setTimeout(() => { if (!exited) child.kill("SIGKILL"); }, payload.timeoutMs || 3 * 60 * 1000);
+    child.on("exit", (code) => {
+      if (exited) return;
+      exited = true;
+      clearTimeout(timer);
+      sendEvent(res, { type: "done", exitCode: code ?? 0, durationMs: Date.now() - started });
+      resolve();
+    });
+    child.on("error", (err) => {
+      if (exited) return;
+      exited = true;
+      clearTimeout(timer);
+      sendEvent(res, { type: "agent_error", message: `无法启动 Claude Code：${err.message}` });
+      sendEvent(res, { type: "done", exitCode: 1 });
+      resolve();
+    });
+    let buf = "";
+    child.stdout.on("data", (chunk) => {
+      buf += chunk.toString();
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let ev;
+        try { ev = JSON.parse(trimmed); } catch { continue; }
+        mapClaudeEvent(ev, res);
+      }
+    });
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, agent: "claude-code", model: DEFAULT_MODEL }));
+    return;
+  }
+  if (req.method === "POST" && req.url === "/chat") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    let payload;
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid json" }));
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/x-ndjson", "transfer-encoding": "chunked" });
+    try {
+      await runChat(payload, res);
+    } catch (err) {
+      sendEvent(res, { type: "agent_error", message: err instanceof Error ? err.message : String(err) });
+      sendEvent(res, { type: "done", exitCode: 1 });
+    }
+    res.end();
     return;
   }
   if (req.method === "POST" && req.url === "/task") {

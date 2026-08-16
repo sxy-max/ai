@@ -457,6 +457,75 @@ function mockStream(model: string): Response {
   return new Response(_merged, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-cache" } });
 }
 
+/** 本 Goal：普通问答经 Claude Code Harness（轻量 profile）。转发到 file-agent 容器 /chat，
+ *  NDJSON 事件映射为现有聊天流事件（meta/text/error/done），前端零改动。 */
+async function claudeCodeChat(body: Body): Promise<Response> {
+  const agentUrl = process.env.AGENT_URL || "http://go-ai-file-agent:18082";
+  const lastUser = [...body.messages].reverse().find((m) => m.role === "user");
+  const prompt = (lastUser?.content || "").slice(0, 6000);
+  // Preflight Auto：主模型 + 按需 MCP（视觉问答挂 vision；研究挂 search）
+  let directive: { mainModel?: string; mcpServers?: string[] } | undefined;
+  try {
+    const { buildDirective } = await import("../../../lib/preflight/build");
+    const built = await buildDirective({
+      goal: prompt,
+      attachments: (lastUser?.attachments || []).map((a) => ({ kind: a.kind === "image" ? "image" : "text", mime: a.mime, name: a.name })),
+    });
+    directive = { mainModel: built.mainModel, mcpServers: built.mcpServers };
+  } catch {}
+  const payload = {
+    prompt,
+    maxTurns: 20,
+    gatewayBaseUrl: process.env.AGENT_GATEWAY_URL || "http://cc-auth-gateway:18081",
+    gatewayToken: process.env.AGENT_GATEWAY_TOKEN || "placeholder-token",
+    directive,
+  };
+  const upstream = await fetch(`${agentUrl}/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!upstream.ok || !upstream.body) throw new Error(`agent chat http ${upstream.status}`);
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encodeEvent({ type: "meta", protocol: "chat", provider: "opencode-go" }));
+      const reader = upstream.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let ev: { type?: string; text?: unknown; result?: unknown; message?: unknown };
+            try { ev = JSON.parse(trimmed); } catch { continue; }
+            if (ev.type === "agent_text" || ev.type === "agent_result") {
+              const text = String(ev.type === "agent_text" ? ev.text : ev.result || "");
+              if (text) controller.enqueue(encodeEvent({ type: "text", value: text }));
+            } else if (ev.type === "agent_error") {
+              controller.enqueue(encodeEvent({ type: "error", value: String(ev.message || "Claude Code 执行失败") }));
+            }
+          }
+        }
+      } catch {}
+      controller.enqueue(encodeEvent({ type: "done", stopReason: "end_turn" }));
+      controller.close();
+    },
+    cancel() {
+      upstream.body?.cancel().catch(() => {});
+    },
+  });
+  return new Response(stream, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-cache, no-transform" } });
+}
+
 export async function POST(request: Request) {
   const configurationError = accessConfigurationError();
   if (configurationError) return errorResponse(configurationError, 503);
@@ -486,6 +555,16 @@ export async function POST(request: Request) {
 
   if (!verifyModelAccess(body.modelToken, body.provider, body.model)) return errorResponse("Model access token is invalid or expired; reload the model list", 403);
   if (body.model.startsWith("mock-")) return mockStream(body.model);
+  // 本 Goal：普通问答统一经 Claude Code Harness（轻量 Execution Profile）。
+  // CLAUDE_CHAT_ENABLED=1（生产）时 chat 由容器内 Claude Code 执行，主模型 Auto；
+  // 关闭时（本地开发/测试）保留原模型流。mock 模型不受影响（E2E）。
+  if (process.env.CLAUDE_CHAT_ENABLED === "1") {
+    try {
+      return await claudeCodeChat(body);
+    } catch (error) {
+      return errorResponse("Claude Code 问答通道不可用（file-agent 容器未就绪？）", 503);
+    }
+  }
   const protocol = protocolForModel(body.model, body.provider);
   if (!protocol) return errorResponse(`Unknown protocol route for model: ${body.model}`, 400);
   const skillText = skillInstruction(detectSkill(body.messages));
