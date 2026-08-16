@@ -52,8 +52,7 @@ const SPEC_SYSTEM = `你是云端 AI 工作系统的演示文稿规划器。根�
 }
 规则：内容基于用户要求与材料事实；材料没有的明确写"（材料未提供）"，不编造；公式用 LaTeX 源码文本形式。`;
 
-/** 由 LLM 生成结构化演示文稿 spec；未配置 LLM 或解析失败返回 null。 */
-export async function specFromLlm(goal: string, fileContext: string): Promise<PresentationSpec | null> {
+/** 由 LLM 生成结构化演示文稿 spec；未配置 LLM 或解析失败返回 null。 */export async function specFromLlm(goal: string, fileContext: string): Promise<PresentationSpec | null> {
   const raw = await completeChat({
     messages: [
       { role: "system", content: SPEC_SYSTEM },
@@ -129,4 +128,36 @@ function normalizeSpec(value: PresentationSpec): PresentationSpec {
         }
       : {}),
   };
+}
+
+/** MCP 工具箱：把外部 JSON spec 归一化为 PresentationSpec（office-mcp 调用）。
+ *  允许 {title, slides:[{title, sections:[{heading?, bullets?}|string], equations?, notes?}]}
+ *  兼容字符串小节与对象小节两种写法。 */
+export function specFromJson(raw: unknown): PresentationSpec {
+  const input = (raw || {}) as Record<string, unknown>;
+  const slidesRaw = Array.isArray(input.slides) ? input.slides : [];
+  const slides = slidesRaw.map((s) => {
+    const slide = (s || {}) as Record<string, unknown>;
+    const sectionsRaw = Array.isArray(slide.sections) ? slide.sections : [];
+    const sections = sectionsRaw.map((sec) => {
+      if (typeof sec === "string") return sec;
+      const obj = sec as Record<string, unknown>;
+      if (Array.isArray(obj.bullets)) return `${obj.heading ? `${obj.heading}：` : ""}${obj.bullets.join("；")}`;
+      return String(obj.heading || "");
+    });
+    return {
+      title: String(slide.title || ""),
+      sections,
+      equations: Array.isArray(slide.equations) ? slide.equations.map(String) : [],
+      ...(slide.notes ? { notes: String(slide.notes) } : {}),
+      ...(typeof slide.layout === "string" ? { layout: slide.layout } : {}),
+    };
+  });
+  const spec: PresentationSpec = {
+    title: String(input.title || (slides[0]?.title || "演示文稿")),
+    slides: slides.length ? slides : [{ title: "演示文稿", sections: [] }],
+  };
+  if (input.subtitle) spec.subtitle = String(input.subtitle);
+  if (input.theme && typeof input.theme === "object") spec.theme = input.theme as PresentationSpec["theme"];
+  return spec;
 }

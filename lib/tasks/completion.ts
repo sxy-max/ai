@@ -19,6 +19,8 @@ export type ArtifactExpectation = {
   mustBeNonEmpty?: boolean;
   /** 格式验证策略：strict = 执行 ArtifactValidator（V11-WP12）；none = 仅存在性。 */
   validate?: "format" | "none";
+  /** 页数约束（pptx：实际 slide 数必须落在区间；"两页 PPT" 的 Validation 依据）。 */
+  pageConstraint?: { min?: number; max?: number };
 };
 
 /** 任务完成契约。 */
@@ -92,6 +94,26 @@ export async function validateTaskCompletion(
       const validation = await formatValidator(artifact.id, artifact.name, artifact.type);
       if (validation) results.push(validation);
     }
+  }
+
+  // 页数契约（本 Goal：PPT 实际 slide 数必须落在契约区间——"两页 PPT" 产出 5 页 = 未完成）
+  for (const entry of byExpectation) {
+    if (!entry.satisfied || !entry.expectation.pageConstraint) continue;
+    const matched = entry.matched[0];
+    if (!matched) continue;
+    try {
+      const { artifactService } = await import("../artifacts/service");
+      const { countPptxSlides } = await import("../artifacts/validator");
+      const buf = artifactService.readContent(matched.id);
+      if (!buf) continue;
+      const slides = await countPptxSlides(buf);
+      if (slides === null) continue;
+      const { min, max } = entry.expectation.pageConstraint;
+      if ((min !== undefined && slides < min) || (max !== undefined && slides > max)) {
+        const detail = `幻灯片 ${slides} 页超出契约 ${min !== undefined ? `[${min}..${max ?? "不限"}]` : `[1..${max}]`}`;
+        results.push({ artifactId: matched.id, filename: matched.name, kind: String(matched.type), ok: false, checks: { pageCount: { ok: false, detail } }, error: detail });
+      }
+    } catch {}
   }
 
   const missing = byExpectation.filter((e) => !e.satisfied).map((e) => e.expectation);

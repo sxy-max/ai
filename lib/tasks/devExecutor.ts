@@ -446,6 +446,8 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           filenamePattern: "*",
           minCount: directive?.deliveryContract.minCount ?? 1,
           validate: directive?.deliveryContract.validate === "none" ? "none" : "format",
+          // 页数契约（"两页 PPT" → 实际 slide 数必须 ≤2）
+          pageConstraint: directive?.deliveryContract.pageConstraint,
         }],
         minArtifacts: directive?.deliveryContract.minCount ?? 1,
         validationPolicy: "strict",
