@@ -150,7 +150,7 @@ export function specFromJson(raw: unknown): PresentationSpec {
       sections,
       equations: Array.isArray(slide.equations) ? slide.equations.map(String) : [],
       ...(slide.notes ? { notes: String(slide.notes) } : {}),
-      ...(typeof slide.layout === "string" ? { layout: slide.layout } : {}),
+      ...(typeof slide.layout === "string" && VALID_LAYOUTS.includes(slide.layout) ? { layout: slide.layout as PresentationSlide["layout"] } : {}),
     };
   });
   const spec: PresentationSpec = {

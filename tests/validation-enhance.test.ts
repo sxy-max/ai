@@ -62,7 +62,7 @@ test("validator: pdf 头尾校验", async () => {
 test("completion: PPTX 页数契约（两页 PPT 产出 3 页 = 未完成）", async () => {
   const buf = await pptxBytes(3);
   const { artifactService } = await import("../lib/artifacts/service");
-  const created = await artifactService.createArtifact({ filename: "演示.pptx", content: buf, kind: "pptx", source: "test" });
+  const created = await artifactService.createArtifact({ filename: "演示.pptx", content: buf, kind: "pptx", source: "agent" });
   const artifact = { id: created.id, name: "演示", type: "pptx", size: buf.length, status: "ready" as const, downloadUrl: `/api/artifacts/${created.id}` };
   const contract = {
     expectations: [{ kind: "pptx", minCount: 1, validate: "format" as const, pageConstraint: { min: 1, max: 2 } }],
