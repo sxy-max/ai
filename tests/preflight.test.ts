@@ -143,3 +143,30 @@ test("build: 无健康模型 → 明确错误（不随机替换）", async () =>
   health.record("qwen3.8-max", { status: "disabled", probedAt: Date.now() });
   await assert.rejects(() => buildDirective({ goal: "写一个程序", health }), /PREFLIGHT_NO_MODEL/);
 });
+
+test("rules: 写 Python 程序 → coding 工作区任务（不落 chat）", () => {
+  const v = applyRules({ goal: "写一个 Python 程序，读取 CSV 并计算每列平均值，保存为 analyze.py 并执行验证", attachments: [{ kind: "spreadsheet", mime: "text/csv", name: "data.csv" }] });
+  assert.equal(v.taskType, "coding_task");
+  assert.ok(v.capabilities.includes("coding"));
+  assert.equal(v.deliveryContract.kind, "code");
+  assert.equal(v.profile, "workspace");
+});
+
+test("rules: PDF 文档 → pdf（不被 docx 的『文档』误判）", () => {
+  const v = applyRules({ goal: "生成一份关于太阳系的 PDF 文档（含标题与三个段落）" });
+  assert.equal(v.deliveryContract.kind, "pdf");
+});
+
+test("rules: 综合任务（图+CSV+网站+打包）→ zip 契约（不被 xlsx 中间产物误判）", () => {
+  const v = applyRules({
+    goal: "根据参考图重构网站页面，整合 data.csv 的销量数据为表格，保证移动端无横向滚动，完成后打包为 zip 交付",
+    attachments: [
+      { kind: "archive", mime: "application/zip", name: "site.zip" },
+      { kind: "image", mime: "image/png", name: "reference.png" },
+      { kind: "spreadsheet", mime: "text/csv", name: "data.csv" },
+    ],
+  });
+  assert.equal(v.deliveryContract.kind, "zip");
+  assert.ok(v.capabilities.includes("vision"));
+  assert.ok(v.capabilities.includes("spreadsheet"));
+});

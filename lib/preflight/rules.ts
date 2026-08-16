@@ -37,15 +37,15 @@ const GENERATE_VERBS = /做|制作|生成|创建|写|给我|出一份|做一份|
 const PAGE_COUNT = /(\d+)\s*页|(一|两|三|四|五|六|七|八|九|十)\s*页/;
 const PAGE_CN: Record<string, number> = { 一: 1, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
 
-/** 目标产物 kind 关键词（确定性）。 */
+/** 目标产物 kind 关键词（确定性）。pdf 在 docx 前（"PDF 文档"→pdf 而非 docx）。 */
 export function artifactKindFromGoal(goal: string): string | undefined {
   const g = goal.toLowerCase();
   if (/ppt|演示文稿|幻灯片|presentation/i.test(g)) return "pptx";
   if (/(excel|xlsx|表格|电子表格|spreadsheet)/i.test(g)) return "xlsx";
   // csv：目标动词紧邻才算目标产物；"读取/分析 data.csv" 的 csv 是输入材料
   if (/(转成|导出|生成|做成|整理成|输出)\s*csv\b|csv\s*(文件|表格|格式)/i.test(g)) return "csv";
-  if (/word|docx|文档|文书|报告书/i.test(g)) return "docx";
   if (/\bpdf\b/i.test(g)) return "pdf";
+  if (/word|docx|文档|文书|报告书/i.test(g)) return "docx";
   if (/html|网页|网站|页面|前端/i.test(g)) return "html";
   if (/zip|打包|压缩包|项目包/i.test(g)) return "zip";
   if (/markdown|\.md\b|笔记/i.test(g)) return "markdown";
@@ -85,7 +85,7 @@ export function applyRules(input: PreflightInput): RuleVerdict {
   //    契约 = 主要产物（zip/html 优先于数据类）；单类附件走各自规则；
   //    Office 明确产物（PPT/Excel/Word/PDF）走规则 3（内容由 Claude Code 组织）
   if (isModify && (input.attachments?.length ?? 0) >= 2 && (hasImage || hasSpreadsheet || hasArchive || hasCodeFile)
-      && kind !== "pptx" && kind !== "xlsx" && kind !== "csv" && kind !== "docx" && kind !== "pdf") {
+      && kind !== "pptx" && kind !== "docx" && kind !== "pdf") {
     const caps: DirectiveCapability[] = ["coding"];
     if (hasImage) caps.push("vision");
     if (hasSpreadsheet) caps.push("spreadsheet");
@@ -130,10 +130,23 @@ export function applyRules(input: PreflightInput): RuleVerdict {
       reason: "image+qa: vision chat",
     };
   }
+  // 2b. 代码任务（写/实现程序/脚本/函数——"写一个 Python 程序"→ coding 工作区，契约=代码文件）
+  if (/(写|编写|实现|创建|开发)\s*(一个|个)?\s*(python|py|程序|脚本|函数|类|模块|api|接口)/i.test(goal)
+      || /(程序|脚本|函数|算法)\s*(实现|完成|编写)/i.test(goal)) {
+    return {
+      taskType: "coding_task",
+      capabilities: ["coding"],
+      deliveryContract: { kind: "code", minCount: 1, validate: "format", mustChangeFiles: true },
+      workspaceMode: input.projectId ? "project" : "task",
+      reasoning: "auto",
+      profile: "workspace",
+      needsModelClassify: false,
+      reason: "coding task",
+    };
+  }
   // 3. 明确产物 + 生成动词 → 产物任务（契约 kind/页数由 Preflight 定，Claude Code 决定怎么做）
   //    有输入材料（附件）→ file_transform 工作区（Claude Code 需读材料）；纯生成 → artifact_generation
-  if (kind && isGenerate) {
-    const caps: DirectiveCapability[] = ["coding"];
+  if (kind && isGenerate) {    const caps: DirectiveCapability[] = ["coding"];
     if (kind === "pptx") caps.push("presentation");
     if (kind === "xlsx" || kind === "csv") caps.push("spreadsheet");
     if (kind === "docx") caps.push("document");

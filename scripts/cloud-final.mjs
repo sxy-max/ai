@@ -37,7 +37,7 @@ function multipart(fields, files) {
   return form;
 }
 
-async function pollTask(taskId, timeoutMs = 900_000) {
+async function pollTask(taskId, timeoutMs = 1200_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const r = await api(`/api/tasks/${taskId}`);
@@ -228,26 +228,29 @@ async function main() {
     return `zip 产物 ${buf.length}B；共 ${arts.length} 个产物`;
   });
 
-  // C09 项目延续：同一 project 两轮任务共享 workspace
+  // C09 项目延续：同一 project 两轮任务共享 workspace（创建时绑定 projectId；completed 后 continue）
   await runCase("C09 项目延续（持久 workspace）", async () => {
     const created = await api("/api/projects", { method: "POST", body: { name: "延续项目", description: "final" } });
     if (created.status !== 200) throw new Error(`建项目 ${created.status}`);
     const projectId = created.json?.project?.id;
     if (!projectId) throw new Error("无 projectId");
-    const t1 = await createTask({ goal: "做一个小网站首页（标题：My Site），输出 index.html", files: [] });
-    const r1 = await api(`/api/tasks/${t1}`, { method: "PATCH", body: { action: "continue", projectId } });
-    if (r1.status !== 200) throw new Error(`绑定项目 ${r1.status}: ${r1.text.slice(0, 120)}`);
+    // 第一轮：创建即绑定项目（持久 workspace 根 = projects/{projectId}）
+    const r1 = await api("/api/tasks", { method: "POST", form: multipart({ goal: "做一个小网站首页（标题：My Site），输出 index.html", title: "第一轮建站", projectId }, []) });
+    if (r1.status !== 200) throw new Error(`第一轮创建 ${r1.status}: ${r1.text.slice(0, 120)}`);
+    const t1 = r1.json?.task?.id || r1.json?.id;
     const p1 = await pollTask(t1);
     if (!p1.ok) throw new Error(`第一轮 ${p1.task.status}: ${p1.task.error || ""}`);
-    const t2 = await createTask({ goal: "把网站标题改成 New Title，并新增一个关于页面", files: [] });
-    const r2 = await api(`/api/tasks/${t2}`, { method: "PATCH", body: { action: "continue", projectId } });
-    if (r2.status !== 200) throw new Error(`第二轮绑定项目 ${r2.status}`);
-    const p2 = await pollTask(t2);
+    const arts1 = p1.task.artifacts || [];
+    if (!arts1.length) throw new Error("第一轮无产物");
+    // 第二轮：completed 后 continue（同一任务重新 queued，复用 project workspace）
+    const r2 = await api(`/api/tasks/${t1}`, { method: "PATCH", body: { action: "continue", goal: "把网站标题改成 New Title，并新增一个关于页面" } });
+    if (r2.status !== 200) throw new Error(`continue ${r2.status}: ${r2.text.slice(0, 120)}`);
+    const p2 = await pollTask(t1);
     if (!p2.ok) throw new Error(`第二轮 ${p2.task.status}: ${p2.task.error || ""}`);
     const proj = await api(`/api/projects/${projectId}`);
     const files = proj.json?.files || [];
     if (!files.length) throw new Error("项目 workspace 文件树为空");
-    return `两轮完成，项目文件树 ${files.length} 项`;
+    return `两轮完成（任务复用 ${t1.slice(0, 8)}），项目文件树 ${files.length} 项`;
   });
 
   // C10 Cancel：长任务中途取消
