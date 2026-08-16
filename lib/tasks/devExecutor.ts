@@ -126,7 +126,7 @@ export type DevStepInput = {  taskId: string;
 };
 
 /** V1.4：系统工作文件不注册为产物（agent 拷贝 task.json/context.json 到 output 的噪音；上报路径与兜底收集共用）。 */
-export const SYSTEM_ARTIFACT_FILES = new Set(["task.json", "task.md", "context.json", "workspace.json", "runtime.json", "events.ndjson", "stdout.log", "stderr.log"]);
+export const SYSTEM_ARTIFACT_FILES = new Set(["task.json", "task.md", "context.json", "workspace.json", "runtime.json", "events.ndjson", "stdout.log", "stderr.log", "CLAUDE.md"]);
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
 
