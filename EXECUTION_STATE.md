@@ -3,6 +3,14 @@
 ## 2026-08-16 V1.6 Architecture Convergence（Claude Code 唯一主 Harness）
 
 > 当前架构的唯一真相见仓库根 **CURRENT_EXECUTION_ARCHITECTURE.md**；本节为历史记录。
+>
+> **V1.6 云端真实验证（2026-08-16 晚）**：
+> - Claude Code 主链 QA 通过（普通问答→容器回答 196 字符）
+> - office MCP 工具经 `--allowedTools mcp__office__*` 授权后真实产出：xlsx 16011B（PK 头）、pptx 56326B（2 页）
+> - 综合任务 C08（参考图重构+CSV 整合+移动端）completed：index.html 2776B + style.css + 销量数据.xlsx 17742B
+> - Preflight 修复：csv 输入/目标区分（"读取 data.csv"不再误判 csv 产物）；planner 同步
+> - 已知限制：Claude Code 长任务（代码/Office）执行 5-15 分钟 > 矩阵 900s 轮询（任务实际完成、产物存在）；zip 打包契约未强制（C08 无 zip 但 completed）；worker 串行 + 心跳 90s 租约对长任务偏紧（并行修复 623a853：--model 参数 + 固定 claude 2.1.228 已并入）
+> - 本地：457/457 + typecheck + build + E2E 17/17 + 综合验收测试 2/2
 
 **翻转**：V1.5 的「AgentScope 2.0 主 Harness」决策被本 Goal 取代——**Claude Code 是唯一主 Harness**。
 
