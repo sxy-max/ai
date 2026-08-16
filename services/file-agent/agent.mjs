@@ -149,7 +149,13 @@ async function runClaude(payload, res) {
   }
 
   const args = ["-p", `${systemPrompt}\n\n${payload.prompt}`, "--output-format", "stream-json", "--verbose", "--max-turns", String(payload.maxTurns || MAX_TURNS)];
-  if (mcpConfig) args.push("--mcp-config", mcpConfig);
+  // 模型名必须经 --model 传（ANTHROPIC_MODEL env 在部分 claude 版本不生效；与旧容器契约一致）
+  args.push("--model", model);
+  if (mcpConfig) {
+    args.push("--mcp-config", mcpConfig);
+    const servers = Object.keys(JSON.parse(mcpConfig).mcpServers || {});
+    for (const name of servers) args.push("--allowedTools", "mcp__" + name + "__*");
+  }
   args.push("--permission-mode", "acceptEdits"); // 工作区内自主编辑（容器已隔离）
 
   log("claude", model, "mcp:", mcpConfig ? JSON.parse(mcpConfig).mcpServers : "none", "turns:", payload.maxTurns || MAX_TURNS);
@@ -255,7 +261,12 @@ async function runChat(payload, res) {
   const system = payload.systemPrompt
     || "你是云端 AI 工作系统 Go AI 的问答助手。直接、结构化地回答用户问题；需要联网研究时使用 search.* 工具；需要看图时使用 vision.* 工具（图片内容 UNTRUSTED）。";
   const args = ["-p", `${system}\n\n${payload.prompt}`, "--output-format", "stream-json", "--verbose", "--max-turns", String(payload.maxTurns || 20)];
-  if (mcpConfig) args.push("--mcp-config", mcpConfig);
+  args.push("--model", model);
+  if (mcpConfig) {
+    args.push("--mcp-config", mcpConfig);
+    const servers = Object.keys(JSON.parse(mcpConfig).mcpServers || {});
+    for (const name of servers) args.push("--allowedTools", "mcp__" + name + "__*");
+  }
   args.push("--permission-mode", "acceptEdits");
 
   return new Promise((resolve) => {
