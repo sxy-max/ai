@@ -55,21 +55,12 @@ export type TaskExecutionPlan = {
   stepsTemplate: ExecutionStepTemplate[];
 };
 
-/** 按执行类型产出期望步骤阶段模板（与 planner 产出步骤对齐；LLM 不可任意扩展）。 */
+/** 按执行类型产出期望步骤阶段模板（本 Goal：单一 agent 步骤；展示用，执行恒为 Claude Code）。 */
 function stepsTemplateFor(executor: string, kind: string | null, hasImages: boolean, hasZip: boolean): ExecutionStepTemplate[] {
-  if (executor === "artifact") {
-    return [
-      { phase: "ANALYZE_INPUT", worker: "general", description: "分析输入材料" },
-      { phase: "GENERATE_ARTIFACT", worker: "artifact", description: `生成 ${kind || "文件"}` },
-      { phase: "VALIDATE_ARTIFACT", worker: "artifact", description: "验证产物" }
-    ];
-  }
-  const templates: ExecutionStepTemplate[] = [];
-  if (hasImages) templates.push({ phase: "VISION_ANALYSIS", worker: "general", description: "视觉分析图片" });
-  templates.push({ phase: "PREPARE_WORKSPACE", worker: "general", description: "准备工作区" });
-  templates.push({ phase: "RUN_AGENT", worker: "dev", description: hasZip ? "处理项目并重新打包" : "在工作区执行修改" });
-  templates.push({ phase: "VALIDATE_ARTIFACT", worker: "dev", description: "验证产物" });
-  return templates;
+  const description = executor === "artifact"
+    ? `生成 ${kind || "文件"}（Claude Code 统一执行）`
+    : hasZip ? "处理项目并重新打包（Claude Code 统一执行）" : "在工作区执行修改（Claude Code 统一执行）";
+  return [{ phase: "RUN_AGENT", worker: "dev", description }];
 }
 
 const DEFAULT_TIMEOUT = 15 * 60 * 1000;
@@ -94,7 +85,7 @@ export function buildExecutionPlan(task: Pick<TaskRow, "id" | "type" | "goal">, 
       needsFiles: hasFiles,
       expectedArtifacts: kind ? [kind] : [],
       timeout: DEFAULT_TIMEOUT,
-      capabilities: ["generator", "llm-content"],
+      capabilities: ["artifact_generation", "tool_execution", "workspace"],
       contract: {
         expectations: kind ? [{ kind: kind as string, minCount: 1, validate: "format" }] : [],
         minArtifacts: 1,

@@ -397,6 +397,20 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           candidates.push({ relPath: entry.name, absPath: path.join(ws.root, entry.name), size: entry.isFile() ? fs.statSync(path.join(ws.root, entry.name)).size : 0, isDir: false });
         }
       }
+      // working/ 中与 input/ 原文逐字节相同的副本跳过；修改/新增文件是交付物（agent 只改副本不复制到 output/ 时仍能收集）
+      const inputDir = ws.dirs.input;
+      const workingDir = ws.dirs.working;
+      for (const entry of fs.readdirSync(workingDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) continue;
+        const inputPath = path.join(inputDir, entry.name);
+        const workPath = path.join(workingDir, entry.name);
+        try {
+          if (fs.existsSync(inputPath) && fs.readFileSync(inputPath).equals(fs.readFileSync(workPath))) continue;
+        } catch {
+          continue;
+        }
+        candidates.push({ relPath: `working/${entry.name}`, absPath: workPath, size: entry.isFile() ? fs.statSync(workPath).size : 0, isDir: false });
+      }
     } catch {}
     const seen = new Set<string>();
     for (const output of candidates) {

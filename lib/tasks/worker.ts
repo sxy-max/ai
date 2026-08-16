@@ -358,20 +358,26 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       const artifacts = await listTaskArtifacts(task.id);
       // 本 Goal：完成契约与 Preflight directive 对齐（步级 directive 按步骤编译；
       // 任务级契约=directive.deliveryContract，避免 executionPlan 全文判定串步骤）
-      const completionContract = directive?.deliveryContract.kind || (directive?.deliveryContract.minCount ?? 0) > 0
+      // 本 Goal：完成契约与 Preflight directive 对齐（步级 directive 按步骤编译；
+      // 任务级契约=directive.deliveryContract，避免 executionPlan 全文判定串步骤）
+      // Preflight 判定无产物契约（quick/chat：validate=none 且无 kind/minCount）→ 不要求产物
+      const contract = directive?.deliveryContract;
+      const completionContract = contract && (contract.kind || (contract.minCount ?? 0) > 0)
         ? {
-            expectations: directive?.deliveryContract.kind
+            expectations: contract.kind
               ? [{
-                  kind: directive.deliveryContract.kind as string,
-                  minCount: directive.deliveryContract.minCount ?? 1,
-                  validate: directive.deliveryContract.validate,
-                  pageConstraint: directive.deliveryContract.pageConstraint,
+                  kind: contract.kind as string,
+                  minCount: contract.minCount ?? 1,
+                  validate: contract.validate,
+                  pageConstraint: contract.pageConstraint,
                 }]
               : [],
-            minArtifacts: directive?.deliveryContract.minCount ?? 1,
+            minArtifacts: contract.minCount ?? 1,
             validationPolicy: "strict" as const,
           }
-        : executionPlan.contract;
+        : contract
+          ? { expectations: [], minArtifacts: 0, validationPolicy: "strict" as const }
+          : executionPlan.contract; // directive 构建失败（极少数）：沿用计划契约兜底
       // WP12：格式验证（HTML/CSV/JSON/ZIP/PPTX/MD）——不合格进入 repair loop
       const verdict = await validateTaskCompletion(task.id, artifacts, completionContract, async (artifactId, filename, kind) => {
         const { validateArtifactFormat } = await import("../artifacts/validator");

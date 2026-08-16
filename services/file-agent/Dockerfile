@@ -9,9 +9,14 @@ FROM node:24-alpine
 # claude 版本固定 2.1.228（与既有验证过的 go-ai-file-agent 容器一致；latest 行为漂移风险）
 # 中国网络：官方 alpine 源不可达（DNS 污染）→ 换 aliyun 镜像
 # Docker Desktop 偶发 apk 解包 I/O error → 重试循环
+# claude 原生二进制（platform optional dep）下载偶发失败 → 重试 + 版本验证（失败即构建失败，不产出坏镜像）
+# npm 11+ 默认拦截 postinstall（allow-scripts 机制）→ 不放开则 install.cjs 永不运行，
+# bin/claude.exe 只剩无 shebang 的错误脚本 → 容器内 spawn ENOEXEC（生产矩阵全挂根因）
 RUN sed -i 's|https://dl-cdn.alpinelinux.org|https://mirrors.aliyun.com|g' /etc/apk/repositories \
   && for i in 1 2 3; do apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont bash curl unzip zip python3 py3-pip && break || sleep 5; done \
-  && npm i -g @anthropic-ai/claude-code@2.1.228 --registry=https://registry.npmjs.org \
+  && npm config set allow-scripts=@anthropic-ai/claude-code \
+  && for i in 1 2 3; do npm i -g @anthropic-ai/claude-code@2.1.228 --registry=https://registry.npmjs.org && claude --version >/dev/null 2>&1 && break || { npm rm -g @anthropic-ai/claude-code 2>/dev/null; sleep 5; }; done \
+  && claude --version \
   && npm cache clean --force
 
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1

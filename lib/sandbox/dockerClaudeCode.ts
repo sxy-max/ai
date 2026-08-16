@@ -82,6 +82,22 @@ export class GoFileAgentAdapter implements AgentRuntimeAdapter {
     };
     push("output");
     push("artifacts");
+    // working/ 中与 input/ 原文逐字节相同的副本跳过（原文非交付物）；修改/新增文件是交付物
+    const inputDir = path.join(workspaceRoot, "input");
+    const workingDir = path.join(workspaceRoot, "working");
+    if (fs.existsSync(workingDir)) {
+      for (const entry of fs.readdirSync(workingDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) continue;
+        const inputPath = path.join(inputDir, entry.name);
+        const workPath = path.join(workingDir, entry.name);
+        try {
+          if (fs.existsSync(inputPath) && fs.readFileSync(inputPath).equals(fs.readFileSync(workPath))) continue;
+        } catch {
+          continue;
+        }
+        out.push({ relPath: `working/${entry.name}`, absPath: workPath, size: entry.isFile() ? fs.statSync(workPath).size : 0, isDir: false });
+      }
+    }
     return out;
   }
 

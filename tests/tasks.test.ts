@@ -289,24 +289,26 @@ test("产物并发版本化：同名并发注册 version 唯一递增", async ()
 
 
 /** V1.4 WP31：规则规划器对文件类目标必须产出 artifact 步骤（PDF 曾落 general）。 */
-test("planFromRules：PDF/PPT/表格/网页目标 → artifact 步骤", () => {
-  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string; goal: string }> };
+test("planFromRules：PDF/PPT/表格/网页目标 → 单一 dev 步骤（产物契约由 Preflight directive 承载）", () => {
+  const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string; goal: string; title: string }> };
   const cases: Array<[string, string]> = [
-    ["把这篇内容做成 PDF", "artifact"],
-    ["做两页产品介绍 PPT", "artifact"],
-    ["把这个 CSV 转成 Excel", "artifact"],
-    ["整理成表格", "artifact"],
-    ["做一个介绍页面网站", "artifact"],
+    ["把这篇内容做成 PDF", "PDF"],
+    ["做两页产品介绍 PPT", "演示文稿"],
+    ["把这个 CSV 转成 Excel", "Excel"],
+    ["整理成表格", "Excel"],
+    ["做一个介绍页面网站", "网页"],
   ];
-  for (const [goal, expected] of cases) {
+  for (const [goal, expectedTitle] of cases) {
     const steps = planFromRules({ type: "artifact", goal }, { files: [] });
-    assert.ok(steps.some((s) => s.worker_type === expected), `goal "${goal}" 应含 ${expected} 步骤（got ${steps.map((s) => s.worker_type)}）`);
-    assert.ok(!steps.some((s) => s.worker_type === "general" && s.goal.includes("处理任务")), `goal "${goal}" 不应落 general 兜底`);
+    assert.equal(steps.length, 1, `goal "${goal}" 应为单一步骤`);
+    assert.equal(steps[0].worker_type, "dev", `goal "${goal}" 应为 dev（Claude Code）步骤`);
+    assert.ok(steps[0].title.includes(expectedTitle), `goal "${goal}" 标题应含 "${expectedTitle}"（got ${steps[0].title}）`);
   }
 });
 
-test("planFromRules：纯咨询类目标保持 general（不误伤）", () => {
+test("planFromRules：纯咨询类目标保持单一 dev 步骤（不误伤、不落 general 兜底）", () => {
   const { planFromRules } = require("../lib/leader/planner") as { planFromRules: (t: { type: string; goal: string }, c: { files?: unknown[] }) => Array<{ worker_type: string; goal: string }> };
   const steps = planFromRules({ type: "artifact", goal: "解释一下什么是惯性" }, { files: [] });
-  assert.ok(steps.some((s) => s.worker_type === "general"));
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].worker_type, "dev");
 });
