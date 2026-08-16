@@ -155,7 +155,7 @@ export function specFromJson(raw: unknown): PresentationSpec {
   });
   const spec: PresentationSpec = {
     title: String(input.title || (slides[0]?.title || "演示文稿")),
-    slides: slides.length ? slides : [{ title: "演示文稿", sections: [] }],
+    slides: slides.length ? slides : [{ title: "演示文稿", sections: [], equations: [] }],
   };
   if (input.subtitle) spec.subtitle = String(input.subtitle);
   if (input.theme && typeof input.theme === "object") spec.theme = input.theme as PresentationSpec["theme"];
