@@ -44,8 +44,7 @@ test("symlink 逃逸：workspace 内符号链接指向外部 → 读取被拒", 
     // Windows 无权限创建 symlink 时跳过
     return;
   }
-  const buf = ws.readWorkspaceFile("working/link.txt");
-  assert.equal(buf, null, "symlink 逃逸读取应被拒");
+  assert.throws(() => ws.readWorkspaceFile("working/link.txt"), /symlink/, "symlink 逃逸读取应被拒（显式抛错，不静默）");
 });
 
 test("限额：超大文件/文件数超限被拒", () => {

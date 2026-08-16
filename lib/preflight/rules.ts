@@ -146,7 +146,8 @@ export function applyRules(input: PreflightInput): RuleVerdict {
   }
   // 3. 明确产物 + 生成动词 → 产物任务（契约 kind/页数由 Preflight 定，Claude Code 决定怎么做）
   //    有输入材料（附件）→ file_transform 工作区（Claude Code 需读材料）；纯生成 → artifact_generation
-  if (kind && isGenerate) {    const caps: DirectiveCapability[] = ["coding"];
+  if (kind && isGenerate) {
+    const caps: DirectiveCapability[] = ["coding"];
     if (kind === "pptx") caps.push("presentation");
     if (kind === "xlsx" || kind === "csv") caps.push("spreadsheet");
     if (kind === "docx") caps.push("document");

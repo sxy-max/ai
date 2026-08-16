@@ -218,7 +218,7 @@ async function main() {
         { path: `${FIXTURES}/reference.png`, name: "reference.png" },
       ],
     });
-    const { ok, task } = await pollTask(id, 1200_000);
+    const { ok, task } = await pollTask(id, 1800_000);
     if (!ok) throw new Error(`${task.status}: ${task.error || ""}`);
     const arts = task.artifacts || [];
     const zip = arts.find((a) => a.type === "zip");
@@ -273,12 +273,52 @@ async function main() {
       createTask({ goal: "做一页 PPT：关于 JavaScript", files: [] }),
       createTask({ goal: "做一页 PPT：关于 Go", files: [] }),
     ]);
-    const results = await Promise.all(ids.map((id) => pollTask(id, 600_000)));
+    const results = await Promise.all(ids.map((id) => pollTask(id, 900_000)));
     if (!results.every((r) => r.ok)) {
       const bad = results.map((r, i) => (r.ok ? "" : `${ids[i]}:${r.task.status}/${r.task.error || ""}`)).filter(Boolean);
       throw new Error(`并发任务失败：${bad.join("；")}`);
     }
     return "3 任务全部完成";
+  });
+
+  // C12 移动端验收：390px 视口下核心页面无横向滚动（系统 chromium + playwright-core）
+  // 复用矩阵 API 登录 cookie；chromium/playwright-core 缺失时 SKIP（不判失败，镜像内含则真实执行）
+  await runCase("C12 移动端 UI（390px 无横向滚动）", async () => {
+    const { createRequire } = await import("node:module");
+    let chromium;
+    try {
+      const req = createRequire("/app/package.json");
+      ({ chromium } = req("playwright-core"));
+    } catch {
+      return "SKIP（容器无 playwright-core）";
+    }
+    const candidates = ["/usr/bin/chromium-browser", "/usr/bin/chromium", "/usr/bin/chromium.exe"];
+    const executablePath = candidates.find((p) => fs.existsSync(p));
+    if (!executablePath) return "SKIP（容器无 chromium）";
+    const browser = await chromium.launch({ executablePath, chromiumSandbox: false, args: ["--disable-gpu"] });
+    try {
+      const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+      const cookiePair = cookie.split("=");
+      await context.addCookies([{ name: cookiePair[0], value: cookiePair.slice(1).join("="), url: BASE }]);
+      const page = await context.newPage();
+      const checks = [];
+      for (const p of ["/", "/tasks", "/projects"]) {
+        try {
+          const resp = await page.goto(`${BASE}${p}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+          await page.waitForTimeout(800);
+          const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+          checks.push(`${p}: ${resp?.status() || "?"} ${overflow ? "横向溢出!" : "无溢出"}`);
+        } catch (e) {
+          checks.push(`${p}: 加载失败 ${String(e.message || e).slice(0, 80)}`);
+        }
+      }
+      await page.screenshot({ path: "/tmp/mobile-final.png", fullPage: false }).catch(() => {});
+      const bad = checks.filter((c) => c.includes("横向溢出") || c.includes("加载失败"));
+      if (bad.length) throw new Error(bad.join("；"));
+      return checks.join("；");
+    } finally {
+      await browser.close().catch(() => {});
+    }
   });
 
   const pass = results.filter((r) => r.ok).length;

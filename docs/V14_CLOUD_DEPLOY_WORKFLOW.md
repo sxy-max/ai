@@ -73,3 +73,42 @@ ssh tencent-ai "sudo docker rm -f ai-client ai-task-worker
 - 网络：go-ai-net（所有容器）；web 127.0.0.1:3000（nginx 反代公网）
 - 磁盘：40G 总量，剩 ~9G；镜像 ai-client:v1.2/1.3/1.4 保留（回滚）
 - 模型：opencode-go 通道（OPENCODE_GO_API_KEY）+ exa 搜索（EXA_MCP_URL 公开端点）
+
+---
+
+## V1.6 部署补充（2026-08-16，Claude Code 主 Harness 架构）
+
+### 新增/变更容器
+- `ai-client:v1.6`（web + worker，含 Preflight 决策层）
+- `go-ai-file-agent:claude`（services/file-agent/Dockerfile：Claude Code CLI 2.1.228 + MCP 工具箱 vision/browser/office/search）
+- 已停删：`go-ai-agent-runtime`、`sandbox-daemon`（AgentScope 栈退出生产）
+- `/opt/ai-client/.env` 新增：`CLAUDE_CHAT_ENABLED=1`
+
+### file-agent 部署命令（VISION_GATEWAY_TOKEN 从 /opt/vision-gateway/.token 读）
+```bash
+sudo docker run -d --name go-ai-file-agent --network go-ai-net --restart unless-stopped \
+  -v /opt/ai-client/data/workspaces:/data/workspaces \
+  -e AGENT_PORT=18082 -e AGENT_MODEL=deepseek-v4-flash \
+  -e CC_GATEWAY_URL=http://cc-auth-gateway:18081 \
+  -e VISION_GATEWAY_URL=http://vision-gateway:19090 \
+  -e VISION_GATEWAY_TOKEN=<来自 /opt/vision-gateway/.token> \
+  go-ai-file-agent:claude
+```
+
+### 踩坑（勿回退）
+- claude 模型名必须经 `--model` 传（ANTHROPIC_MODEL env 不生效 → 默认模型请求网关失败 → 挂起 15min）
+- claude 版本固定 2.1.228（latest 行为漂移）
+- MCP 工具必须显式授权：`--allowedTools mcp__<name>__*`
+- office-mcp 的 generateDocx 返回 GeneratorOutput 对象，写入须取 `.content`
+- 容器 CMD/USER/EXPOSE 行易在编辑时误删；构建后 `docker image inspect --format '{{.Config.Cmd}}'` 验证
+- 服务器磁盘：镜像 2.8GB，部署前清理旧镜像/tar（保留回滚链 v1.5 + file-agent:latest）
+
+### 回滚（v1.6 → v1.5）
+```bash
+sudo docker rm -f ai-client ai-task-worker go-ai-file-agent
+sudo docker run -d --name ai-client ... ai-client:v1.5
+sudo docker run -d --name ai-task-worker ... ai-client:v1.5 node scripts/task-worker.cjs
+sudo docker run -d --name go-ai-file-agent ... go-ai-file-agent:latest   # 旧容器（Claude Code + opencode 网关）
+# env 去掉 CLAUDE_CHAT_ENABLED（或保留——旧容器无 /chat 端点时 chat 回退 503 → 需删）
+# 源码备份：/opt/ai-client-backup-v11
+```
