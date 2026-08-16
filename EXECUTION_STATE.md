@@ -1,5 +1,27 @@
 # Go AI — Execution State
 
+## 2026-08-16 V1.5 Harness Convergence（REUSE-FIRST，进行中——Phase A 验证全过）
+
+**方向**：Go AI 从自研 Agent Runtime 收敛为「AgentScope 2.0 主 Harness + Go AI Product Layer」。不造 Harness，薄适配，真实执行。
+
+**主 Harness 定案：AgentScope 2.0**（三份源码审计 + 实测）：
+- V15_AGENTSCOPE_SOURCE_AUDIT.md：loop（Agent._reply_impl）/Toolkit+外部工具协议/SSE 26 事件/Redis 会话恢复/中断双路径/middleware/OpenAI 兼容 base_url
+- OpenHands 落选（无工具注册表/无 SSE/中断粗/3.12 门槛）；OpenCode SDK + Claude Code SDK = specialized executor 候选（V15_OPENCODE_CLAUDE_SDK_AUDIT.md）
+
+**服务器 Phase A 验证全过（AgentScope 驱动真实任务）**：
+- agent_workspace 写 markdown → 拉格朗日量简介.md 6869B（runtime=agentscope）✓
+- C08 网站多文件修改 ✓、项目延续两轮共享 workspace ✓（agent 复用=项目持久工作区）
+- Cancel → cancelled ✓；长任务 192s → 13326B 综述 ✓
+- V1.4 矩阵 AgentScope 驱动重跑：8/9（C09 延续已修复，全矩阵重跑确认中）
+
+**关键环境事实（勿回退）**：
+- opencode.ai 按 User-Agent 过滤：agentscope SDK 默认 UA 403 → 容器内 patch（scripts/agentscope-ua-patch.sh，容器重建后重跑）
+- DEEPSEEK_API_KEY 服务器无效（401）——模型通道=opencode-go
+- 服务器 AgentScope 沙盒：Docker 模式工具产物回传问题 → AGENTSCOPE_SANDBOX=local（main.py 支持切换；Redis 状态无损失）
+- 本地 opencode 通道 40s 断连（Clash TUN）——真实模型验收在服务器（RUN_V15_PHASE_A=1）
+
+**收敛定性**（V15_HARNESS_CONVERGENCE.md）：AgentScope 主路径不再经 runtimeProtocol/sandboxManager/AgentLoop 状态机；Claude Code 保留为 specialized executor（runner/sandbox providers 继续服务它）；删除项=AgentScope 通道的重复执行层（运行时不经过）。后续（V1.6）：Claude Code 通道退役后删 runner/jobStore/runtimeProtocol/sandbox providers（约 1500 行）。
+
 ## 2026-08-16 V1.4 完成（tag go-ai-v1.4-artifact-workbench，云端 9/9 矩阵全绿）
 
 **云端部署**：ai-client:v1.4（web+worker，含系统 chromium）；migrate v1.5 已应用；rollback=v1.3 镜像 1b1b8a31eda3 + 源码备份 /opt/ai-client-backup-v11；部署工作流见 docs/V14_CLOUD_DEPLOY_WORKFLOW.md（构建→save→scp→load→rm+run→migrate→矩阵，含全部踩坑表）。
