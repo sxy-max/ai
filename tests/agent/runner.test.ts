@@ -152,3 +152,40 @@ test("5. Cancel 信号透传：request.signal 与输入一致（取消真终止�
   controller.abort();
   assert.equal(gotSignal!.aborted, true, "abort 后信号应同步");
 });
+
+test("6. quick 模式 final answer：agent_text 流累积为 lastResult（agent_result 占位兜底，2026-08-17）", async () => {
+  const { ws } = makeWs();
+  const adapter = fakeAdapter({
+    events: [
+      { type: "text", text: "光合作用是植物利用阳光把水和二氧化碳变成养分的过程。" },
+      { type: "text", text: "它发生在叶绿体中，释放氧气。" },
+      { type: "result", result: "Claude Code 执行结束（exit 0）" },
+      { type: "done", exitCode: 0 },
+    ],
+  });
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job6", prompt: "解释光合作用", workspace: ws, adapter, registerArtifact: async () => null },
+    () => {}
+  );
+  assert.equal(outcome.status, "done");
+  assert.ok(outcome.lastResult, "必须有 final answer");
+  assert.ok(outcome.lastResult!.includes("光合作用"), "真实回答（agent_text 流）应进入 lastResult");
+  assert.ok(!outcome.lastResult!.includes("执行结束"), "占位 result 不应覆盖真实回答");
+});
+
+test("7. lastResult 优先级：agent_result 非占位时优先（工具场景保留语义）", async () => {
+  const { ws } = makeWs();
+  const adapter = fakeAdapter({
+    events: [
+      { type: "text", text: "中间过程文本" },
+      { type: "result", result: "自定义结果：已交付 3 个文件" },
+      { type: "done", exitCode: 0 },
+    ],
+  });
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job7", prompt: "做 PPT", workspace: ws, adapter, registerArtifact: async () => null },
+    () => {}
+  );
+  assert.equal(outcome.status, "done");
+  assert.ok(outcome.lastResult!.includes("自定义结果"), "非占位 result 保持优先");
+});

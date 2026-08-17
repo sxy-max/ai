@@ -86,6 +86,10 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
 
   let artifactCount = 0;
   let phase: JobStatus = "reading_files";
+  // 2026-08-17 修复：quick 模式（普通问答）final answer 丢失——
+  // agent_result 是「执行结束」占位，真实回答在 agent_text 流；累积文本兜底
+  let lastResult: string | undefined;
+  const textParts: string[] = [];
 
   const request = {
     job: { conversationId, jobId },
@@ -119,8 +123,10 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
         }
         case "text":
           emit({ type: "progress", detail: event.text });
+          textParts.push(String(event.text || ""));
           break;
         case "result":
+          lastResult = String(event.result || "");
           emit({ type: "result", summary: event.result });
           break;
         case "artifacts": {
@@ -152,13 +158,20 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
     result = { ok: false, error: message || "sandbox_run_failed", partial: false };
   }
 
+  // quick 模式 final answer：agent_result 为「执行结束」占位时用 agent_text 流（真实回答）
+  const finalAnswer = () => {
+    if (lastResult && !lastResult.includes("Claude Code 执行结束")) return lastResult.trim();
+    const text = textParts.join("\n").trim();
+    return text || lastResult?.trim() || undefined;
+  };
+
   if (result.ok) {
     emit({ type: "status", status: "done", message: result.exitCode === 0 ? "已完成" : "未完全完成，已保留结果" });
-    return { status: "done", result, artifactCount };
+    return { status: "done", result, artifactCount, lastResult: finalAnswer() };
   }
 
   emit({ type: "status", status: "failed", message: statusLabel("failed") });
-  return { status: "failed", result, artifactCount };
+  return { status: "failed", result, artifactCount, lastResult: finalAnswer() };
 }
 
 function defaultTitle(prompt: string): string {
