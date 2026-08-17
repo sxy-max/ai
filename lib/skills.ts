@@ -14,10 +14,10 @@ import { contentStandardText, detectContentComplexity } from "./content-standard
 export type Skill = "" | "academic" | "technical" | "analysis";
 
 const ACADEMIC_HINTS = [
-  "为什么", "怎么理解", "原理", "机制", "本质", "解释", "推导", "证明",
+  "是什么", "什么意思", "含义", "为什么", "怎么理解", "原理", "机制", "本质", "解释", "推导", "证明",
   "定理", "公式", "方程", "物理", "数学", "概率", "统计", "概念", "区别",
   "差异", "对比", "关系", "原因", "影响", "分析一下这个",
-  "derive", "explain", "why", "equation", "theorem", "principle", "concept",
+  "what is", "meaning", "derive", "explain", "why", "equation", "theorem", "principle", "concept",
   "difference between", "mechanism",
 ];
 

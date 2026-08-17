@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { detectContentComplexity, contentStandardText, standardForTask, STRUCTURE_STANDARD, RHETORIC_GENERATOR } from "../lib/content-standard/index";
+import { detectSkill, skillInstruction } from "../lib/skills";
 
 test("复杂度分层：短问 → short", () => {
   assert.equal(detectContentComplexity("HTTP 400 是什么意思？"), "short");
@@ -59,6 +60,12 @@ test("用户可见内容任务注入", () => {
   assert.ok(standardForTask("HTTP 400 是什么意思？").includes("CONTENT STANDARD"));
   assert.ok(standardForTask("矩阵是什么，有什么用？").includes("CONTENT STANDARD"));
   assert.ok(standardForTask("比较两种技术架构并给出选型建议").includes("CONTENT STANDARD"));
+});
+
+test("Chat short concept questions load the short content standard", () => {
+  const messages = [{ role: "user", content: "HTTP 400 是什么意思？" }];
+  assert.equal(detectSkill(messages), "academic");
+  assert.match(skillInstruction(detectSkill(messages), messages[0].content), /CONTENT STANDARD.*短答/s);
 });
 
 test("两份权威原文完整保留（未被改写语义）", () => {

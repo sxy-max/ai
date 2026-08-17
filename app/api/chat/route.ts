@@ -506,6 +506,7 @@ async function claudeCodeChat(body: Body): Promise<Response> {
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      let sawAgentText = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -518,8 +519,14 @@ async function claudeCodeChat(body: Body): Promise<Response> {
             if (!trimmed) continue;
             let ev: { type?: string; text?: unknown; result?: unknown; message?: unknown };
             try { ev = JSON.parse(trimmed); } catch { continue; }
-            if (ev.type === "agent_text" || ev.type === "agent_result") {
-              const text = String(ev.type === "agent_text" ? ev.text : ev.result || "");
+            if (ev.type === "agent_text") {
+              const text = String(ev.text || "");
+              if (text) controller.enqueue(encodeEvent({ type: "text", value: text }));
+              if (text) sawAgentText = true;
+            } else if (ev.type === "agent_result" && !sawAgentText) {
+              // Some Claude Code versions emit the full answer in `result` after
+              // already streaming it as assistant text. Use result only as a fallback.
+              const text = String(ev.result || "");
               if (text) controller.enqueue(encodeEvent({ type: "text", value: text }));
             } else if (ev.type === "agent_error") {
               controller.enqueue(encodeEvent({ type: "error", value: String(ev.message || "Claude Code 执行失败") }));
