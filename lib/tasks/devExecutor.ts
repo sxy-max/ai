@@ -310,7 +310,6 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   const runOnce = async (prompt: string, attempt: number, repair?: { round: number; maxRounds: number; feedback: string; failures: Array<{ code: string; detail: string }> }): Promise<JobRunOutcome> => {
     ws.writeTaskSpec({ title: prompt.slice(0, 60), prompt, visionMd: vision.visionMd, fileManifest: true });
     // 本 Goal：directive 透传（Preflight 编译的 WHAT+CONSTRAINT+CAPABILITY）；repair 证据回交
-    let lastResult = "";
     const outcome = await runAgentJob(
       {
         conversationId,
@@ -364,11 +363,11 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
       },
       (event) => {
         emitJobEvent(input.emit, event, recorder, session.id);
-        // quick 模式（普通问答）：收集 Claude Code 最终文本作为 final answer
-        if (event.type === "result") lastResult = String(event.summary || "");
+        // quick 模式 final answer 由 runner 收敛（agent_text 流兜底 + 「执行结束」占位守卫），
+        // 此处不再用裸 result 事件覆盖（2026-08-17：占位覆盖真实回答 → B01-pro 实测暴露）
       }
     );
-    outcome.lastResult = lastResult;
+    // outcome.lastResult = runner.finalAnswer()：真实回答优先，占位丢弃，agent_text 兜底
     if (attempt === 0 && (outcome.status !== "done" || !outcome.result.ok)) {
       // 第一次执行失败 → 不自动重试（错误原因明确，留给用户重试）
       return outcome;

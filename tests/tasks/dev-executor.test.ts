@@ -396,3 +396,44 @@ test("zip 契约兜底：Claude Code 只产出散文件 → 系统打包 deliver
   assert.ok(events.some((e) => e.includes("deliverable.zip")), "应有 deliverable.zip 事件");
   assert.match(summary.summary, /2 个文件/); // result.md + deliverable.zip
 });
+
+test("quick 模式：agent_result 占位（执行结束）不得覆盖真实回答（B01-pro 回归，2026-08-17）", async () => {
+  const task = await query<{ id: string }>(
+    `INSERT INTO tasks (user_id, goal, type, title, status) VALUES ($1, '用三句话向小学生解释光合作用', 'chat', '占位回归', 'queued') RETURNING id`,
+    [userId]
+  );
+  const taskId = task.rows[0].id;
+
+  class PlaceholderRuntime implements AgentRuntimeAdapter {
+    readonly id = "fake-placeholder";
+    readonly available = true;
+    async prepare(): Promise<RuntimePrepareResult> { return { ok: true }; }
+    async execute(request: SandboxRunRequest, onEvent: (event: SandboxRunEvent) => void | Promise<void>): Promise<SandboxRunResult> {
+      // agent.mjs 真实行为：先发真实回答，退出时再发「执行结束」占位（此前占位覆盖真实回答）
+      await onEvent({ type: "text", text: "光合作用是植物把阳光和二氧化碳变成能量与氧气的过程…" });
+      await onEvent({ type: "result", result: "光合作用是植物把阳光和二氧化碳变成能量与氧气的过程…" });
+      await onEvent({ type: "result", result: "Claude Code 执行结束（exit 0）" });
+      await onEvent({ type: "done", exitCode: 0 });
+      return { ok: true, exitCode: 0 };
+    }
+    async collectOutputs(): Promise<never[]> { return []; }
+    async cancel(): Promise<void> {}
+    async cleanup(): Promise<void> {}
+  }
+
+  const summary = await runDevStep(
+    {
+      taskId,
+      stepId: "step-1",
+      userId,
+      goal: "用三句话向小学生解释光合作用",
+      directive: { profile: "quick", taskType: "chat", deliveryContract: { validate: "none" } } as Parameters<typeof runDevStep>[0]["directive"],
+      files: [],
+      signal: new AbortController().signal,
+      emit: async () => {}
+    },
+    { adapter: new PlaceholderRuntime(), workspacesRoot: WORKSPACES_ROOT }
+  );
+  assert.match(summary.summary, /光合作用/, "final answer 应为真实回答");
+  assert.doesNotMatch(summary.summary, /执行结束/, "占位不得进入 final answer");
+});
