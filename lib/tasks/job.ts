@@ -151,14 +151,22 @@ export async function latestJobForTask(taskId: string): Promise<JobRow | null> {
   return result.rows[0] ? rowToJob(result.rows[0]) : null;
 }
 
-/** 认领过期 Job（lease 超时且非终态；返回被认领 job 或 null）。 */
+/**
+ * 认领过期 Job（lease 超时且非终态；返回被认领 job 或 null）。
+ * 2026-08-17 修复：只认领**每任务的最近 job**（attempt/created 最新）——
+ * 历史 job（如 retry 前的旧 attempt）过期不得打断当前执行，也不得被重复认领。
+ */
 export async function claimExpiredJob(owner: string, leaseMs: number, statuses: JobStatus[]): Promise<JobRow | null> {
   const result = await query<Record<string, unknown>>(
     `UPDATE jobs SET lease_owner = $1, lease_until = now() + make_interval(secs => $3), status = 'recovering'
      WHERE id = (
-       SELECT id FROM jobs
-       WHERE status = ANY($2::text[]) AND (lease_until IS NULL OR lease_until < now())
-       ORDER BY created_at LIMIT 1
+       SELECT j.id FROM jobs j
+       WHERE j.status = ANY($2::text[]) AND (j.lease_until IS NULL OR j.lease_until < now())
+         AND j.id = (
+           SELECT j2.id FROM jobs j2 WHERE j2.task_id = j.task_id
+           ORDER BY j2.attempt DESC, j2.created_at DESC, j2.id DESC LIMIT 1
+         )
+       ORDER BY j.created_at LIMIT 1
      )
      RETURNING ${JOB_COLUMNS}`,
     [owner, statuses, Math.ceil(leaseMs / 1000)]

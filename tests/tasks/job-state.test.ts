@@ -103,8 +103,73 @@ test("V1.3 WP12：worker 死亡后 Job 租约恢复（任务重新入队）", as
   const taskAfter = await query<{ status: string }>("SELECT status FROM tasks WHERE id = $1", [task.id]);
   assert.equal(taskAfter.rows[0].status, "queued", "任务应重新入队");
   const jobAfter = await getJob(job.id);
-  assert.equal(jobAfter?.status, "recovering", "job 应标记 recovering");
+  // 2026-08-17 语义：任务先被 tasks 级回收为 queued，同一轮 job 级认领后收敛为
+  // interrupted（任务已重新入队，旧 job 是历史执行记录；不再停留在 recovering 被重复认领）
+  assert.equal(jobAfter?.status, "interrupted", "job 应收敛 interrupted");
   assert.equal(jobAfter?.lease_owner, "worker-" + process.pid, "job 应由新 worker 认领");
+});
+
+test("2026-08-17 修复：终态任务 + 过期 job → job 收敛终态，不再无限认领循环", async () => {
+  const task = await createTask({ userId, goal: "循环修复", title: "job-loop" });
+  const job = await createJob({ taskId: task.id, userId });
+  // 任务已失败（worker 崩溃前未同步 job）——此前场景：每 90s 被重复认领 + 续租
+  await query("UPDATE tasks SET status = 'failed' WHERE id = $1", [task.id]);
+  await query("UPDATE jobs SET status = 'running', lease_owner = 'dead', lease_until = now() - interval '1 minute' WHERE id = $1", [job.id]);
+
+  const { recoverOrphanedTasks } = await import("../../lib/tasks/worker");
+  const n1 = await recoverOrphanedTasks();
+  assert.ok(n1 >= 1, "应认领并收敛");
+
+  const jobAfter = await getJob(job.id);
+  assert.equal(jobAfter?.status, "failed", "终态任务的 job 应同步 failed");
+  assert.equal(jobAfter?.failure_code, "LEASE_EXPIRED_TASK_FAILED");
+  const taskAfter = await query<{ status: string }>("SELECT status FROM tasks WHERE id = $1", [task.id]);
+  assert.equal(taskAfter.rows[0].status, "failed", "任务保持终态，不被重新入队");
+
+  // 第二次调用不应再认领（job 已终态，不在认领列表）——循环终止
+  await recoverOrphanedTasks();
+  const jobAgain = await getJob(job.id);
+  assert.equal(jobAgain?.status, "failed", "job 保持终态，循环终止");
+});
+
+test("2026-08-17 修复：completed 任务 + 过期 job → job 同步 completed", async () => {
+  const task = await createTask({ userId, goal: "完成收敛", title: "job-done" });
+  const job = await createJob({ taskId: task.id, userId });
+  await query("UPDATE tasks SET status = 'completed' WHERE id = $1", [task.id]);
+  await query("UPDATE jobs SET status = 'running', lease_owner = 'dead', lease_until = now() - interval '1 minute' WHERE id = $1", [job.id]);
+
+  const { recoverOrphanedTasks } = await import("../../lib/tasks/worker");
+  await recoverOrphanedTasks();
+  const jobAfter = await getJob(job.id);
+  assert.equal(jobAfter?.status, "completed", "completed 任务的 job 应同步 completed");
+});
+
+test("2026-08-17 修复：queued 任务 + 过期 job → job 收敛 interrupted，任务保持排队", async () => {
+  const task = await createTask({ userId, goal: "排队收敛", title: "job-queued" });
+  const job = await createJob({ taskId: task.id, userId });
+  // 任务本身 queued（从未领取），job 却已 running 且租约过期（异常态）
+  await query("UPDATE jobs SET status = 'running', lease_owner = 'dead', lease_until = now() - interval '1 minute' WHERE id = $1", [job.id]);
+
+  const { recoverOrphanedTasks } = await import("../../lib/tasks/worker");
+  await recoverOrphanedTasks();
+  const jobAfter = await getJob(job.id);
+  assert.equal(jobAfter?.status, "interrupted", "queued 任务的过期 job 应收敛 interrupted");
+  const taskAfter = await query<{ status: string }>("SELECT status FROM tasks WHERE id = $1", [task.id]);
+  assert.equal(taskAfter.rows[0].status, "queued", "任务保持 queued，会被正常领取");
+});
+
+test("2026-08-17 修复：只认领每任务最新 job（历史 job 过期不打断当前执行）", async () => {
+  const task = await createTask({ userId, goal: "最新job", title: "job-latest" });
+  const job1 = await createJob({ taskId: task.id, userId, attempt: 1 });
+  const job2 = await createJob({ taskId: task.id, userId, attempt: 2 });
+  // 历史 job1 过期（旧 attempt），最新 job2 由活 worker 持有（未过期）
+  await query("UPDATE jobs SET status = 'running', lease_owner = 'dead', lease_until = now() - interval '1 minute' WHERE id = $1", [job1.id]);
+  await query("UPDATE jobs SET status = 'running', lease_owner = 'alive', lease_until = now() + interval '1 minute' WHERE id = $1", [job2.id]);
+
+  const claimed = await claimExpiredJob("worker-2", 90_000, ["running", "planning", "waiting_tool", "repairing"]);
+  assert.ok(!claimed || claimed.id !== job1.id, "历史 job 不应被认领（不打断当前执行）");
+  const job1After = await getJob(job1.id);
+  assert.equal(job1After?.status, "running", "历史 job 状态保持不动");
 });
 test("AgentSession：创建→工具计数→完成关闭", async () => {
   const task = await createTask({ userId, goal: "会话", title: "session-test" });

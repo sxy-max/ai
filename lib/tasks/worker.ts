@@ -121,15 +121,32 @@ export async function recoverOrphanedTasks(): Promise<number> {
     console.log(`[task-worker] 回收孤儿任务 ${row.id}`);
   }
   // V1.3 WP12：Job 级租约恢复（worker 死亡后其他 worker 认领；对应任务重新入队）——循环处理全部过期 job
+  // 2026-08-17 修复：认领列表去掉 recovering + 认领后按任务状态收敛 job 终态——
+  // 此前「终态任务 + 过期 job」每 90s 被无限重复认领（recovering 在列表且无任务联动），
+  // 生产日志实测 80 次/2h；现在终态任务的 job 同步终态、queued/paused 的 job 收敛 interrupted，
+  // 循环终止。
   let jobRecovered = 0;
   while (true) {
-    const claim = await claimExpiredJob(`worker-${process.pid}`, LEASE_SECONDS * 1000, ["running", "planning", "waiting_tool", "repairing", "recovering"]);
+    const claim = await claimExpiredJob(`worker-${process.pid}`, LEASE_SECONDS * 1000, ["running", "planning", "waiting_tool", "repairing"]);
     if (!claim) break;
-    await query(
-      "UPDATE tasks SET status = 'queued', worker_id = '', lease_expires = NULL, updated_at = now() WHERE id = $1 AND status IN ('planning','running','preparing_workspace','validating','retrying','queued')",
-      [claim.task_id]
-    );
-    console.log(`[task-worker] Job ${claim.id}（任务 ${claim.task_id}）租约过期，重新入队`);
+    const claimedTask = await query<{ status: string }>("SELECT status FROM tasks WHERE id = $1", [claim.task_id]);
+    const taskStatus = claimedTask.rows[0]?.status;
+    if (taskStatus && ["planning", "running", "preparing_workspace", "validating", "retrying"].includes(taskStatus)) {
+      await query(
+        "UPDATE tasks SET status = 'queued', worker_id = '', lease_expires = NULL, updated_at = now() WHERE id = $1",
+        [claim.task_id]
+      );
+      console.log(`[task-worker] Job ${claim.id}（任务 ${claim.task_id}）租约过期，重新入队`);
+    } else {
+      // 任务已终态/在队列/暂停：job 收敛为终态，不再进入认领循环
+      const jobEnd =
+        taskStatus === "completed" ? "completed"
+        : taskStatus === "cancelled" ? "cancelled"
+        : taskStatus === "queued" || taskStatus === "paused" || taskStatus === "waiting_user" ? "interrupted"
+        : "failed";
+      await updateJobStatus(claim.id, jobEnd, { failure_code: `LEASE_EXPIRED_TASK_${(taskStatus || "GONE").toUpperCase()}` });
+      console.log(`[task-worker] Job ${claim.id}（任务 ${claim.task_id} 已 ${taskStatus || "不存在"}）job 收敛为 ${jobEnd}`);
+    }
     jobRecovered++;
   }
   return result.rows.length + jobRecovered;
