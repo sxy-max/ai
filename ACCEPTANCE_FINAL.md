@@ -1,7 +1,7 @@
 # Go AI — Final Convergence Acceptance（2026-08-17 定稿）
 
 > 本 Goal 完成验收：Cloud AI Work System 最终架构（Claude Code 唯一主 Harness + Preflight 决策层）
-> 的真实系统验收，**生产版本 ai-client:v2.1 + go-ai-file-agent:claude-v20**。
+> 的真实系统验收，**生产版本 ai-client:v2.4 + go-ai-file-agent:claude-v20**。
 > 唯一架构真相：`CURRENT_EXECUTION_ARCHITECTURE.md`。
 
 ## 最终系统架构（一句话）
@@ -45,7 +45,8 @@ User Input (goal + files + images + project)
 | 移动端 | C12：390px 无横向滚动（/、/tasks、/projects） | ✅ PASS |
 | **Cancel 进程级** | 深检查：cancel 前 file-agent 内 claude 进程=1 → cancel 后=0（断连 SIGKILL 生效） | ✅ PASS |
 | **Recovery** | worker+file-agent 双杀 → 租约过期 → 孤儿回收（error=「任务在上一轮执行中被中断，已重新入队」）→ 续跑 completed | ✅ PASS |
-| Harness Benchmark | B01-B05 × deepseek-v4-flash / pro | 见 docs/HARNESS_BENCHMARK.md |
+| Harness Benchmark | B01-B05 × deepseek-v4-flash / pro（flash 5/5；pro 推理 65s 快于 flash；B01 系统缺陷已修复复测 PASS） | 见 docs/HARNESS_BENCHMARK.md |
+| **Web Research** | 真实研究任务：search-mcp（Exa）+ browser-mcp（真实导航）→ 6360B markdown 交付 | ✅ PASS |
 
 ## 本收尾轮修复（commit 74db292 / a1e88b4）
 
@@ -62,12 +63,12 @@ User Input (goal + files + images + project)
 
 ## 生产部署（tencent-ai，2026-08-17）
 
-- `ai-client:v2.1`（web+worker，sha256:7df1c995f223）+ `go-ai-file-agent:claude-v20`（v2.0 镜像含断连 kill）
+- `ai-client:v2.4`（web+worker：Cancel 真终止 + Job 恢复收敛 + quick 模式 final answer 三层修复 + 附件图片 kind 兜底 + maxTurns 分档）+ `go-ai-file-agent:claude-v20`（含断连 kill）
 - .env：CLAUDE_CHAT_ENABLED=1、FEATURED_MODELS=deepseek-v4-flash,deepseek-v4-pro,minimax-m3、
   AGENT_MODEL=deepseek-v4-flash（Auto 默认，bench 后恢复）
-- 公网入口 http://122.51.78.4/ 已验证（nginx → 127.0.0.1:3000 → v2.1 web）
-- 回滚点：ai-client:v1.8 / v2.0 镜像 + go-ai-file-agent:claude-v18/v19；/opt/ai-client-backup-v11
-- git：origin/main（收尾 commit 后 push）
+- 公网入口 http://122.51.78.4/ 已验证（nginx → 127.0.0.1:3000 → v2.4 web）
+- 回滚点：ai-client:v1.8 / v2.0 / v2.1 / v2.2 / v2.3 镜像 + go-ai-file-agent:claude-v18/v19；/opt/ai-client-backup-v11
+- git：origin/main @ 32037bd（收尾链 74db292→a1e88b4→49122ed→ea747ab→da4617f→506a56b→0c8f538→32037bd）
 
 ## 架构收敛（本 Goal 删除/旁路清单）
 

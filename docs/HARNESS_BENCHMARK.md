@@ -43,6 +43,9 @@
   已修复（da4617f）+ 回归测试 2 项；复测见下。
 - 池结论不变：`APPROVED_POOL=[flash, pro]`；无需第三模型。
 
-## B01-pro 复测（修复后）
+## B01-pro 复测（修复后，生产 v2.4 实证）
 
-（待补：da4617f 部署后重跑 bench-B01-pro）
+- 修复链三层全部落地（da4617f agent_text 流兜底 → 506a56b 双 agent_result 占位守卫 → 0c8f538 devExecutor 不再覆盖 runner 收敛值）
+- 生产复测（v2.4，任务 10ba4f06）：resultSummary = 真实回答
+  （「植物用叶子吸收阳光、空气和水，像做一顿阳光大餐…」），占位不再进入 final answer ✅
+- 结论：pro 的 chat 能力本身正常；此前 B01-pro 判 FAIL 是系统侧 resultSummary 占位缺陷，与模型无关
