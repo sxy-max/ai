@@ -125,10 +125,14 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
           emit({ type: "progress", detail: event.text });
           textParts.push(String(event.text || ""));
           break;
-        case "result":
-          lastResult = String(event.result || "");
+        case "result": {
+          // 2026-08-17 修复：agent.mjs 发两次 agent_result（claude 真实回答 + 「执行结束」占位），
+          // 占位不得覆盖真实回答（否则 quick 模式 final answer 丢失，B01-pro 实测暴露）
+          const value = String(event.result || "");
+          if (value && !value.includes("Claude Code 执行结束")) lastResult = value;
           emit({ type: "result", summary: event.result });
           break;
+        }
         case "artifacts": {
           for (const f of event.files) {
             const name = String(f.name || "download");

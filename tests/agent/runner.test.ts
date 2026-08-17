@@ -189,3 +189,21 @@ test("7. lastResult 优先级：agent_result 非占位时优先（工具场景�
   assert.equal(outcome.status, "done");
   assert.ok(outcome.lastResult!.includes("自定义结果"), "非占位 result 保持优先");
 });
+
+test("8. 双 agent_result：真实回答 + 占位 → 占位不覆盖（B01-pro 根因回归，2026-08-17）", async () => {
+  const { ws } = makeWs();
+  const adapter = fakeAdapter({
+    events: [
+      { type: "result", result: "光合作用就是植物用阳光把水和二氧化碳变成养分。" },
+      { type: "result", result: "Claude Code 执行结束（exit 0）" },
+      { type: "done", exitCode: 0 },
+    ],
+  });
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job8", prompt: "解释光合作用", workspace: ws, adapter, registerArtifact: async () => null },
+    () => {}
+  );
+  assert.equal(outcome.status, "done");
+  assert.ok(outcome.lastResult!.includes("光合作用"), "真实回答 result 不被占位覆盖");
+  assert.ok(!outcome.lastResult!.includes("执行结束"), "占位不得成为 final answer");
+});
