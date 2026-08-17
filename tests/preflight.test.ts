@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { applyRules, artifactKindFromGoal, pageConstraintFromGoal as pc } from "../lib/preflight/rules";
 import { resolveMainModelSync } from "../lib/preflight/models";
 import { buildDirective } from "../lib/preflight/build";
+import { attachmentsFromFiles } from "../lib/preflight/attachments";
 
 test("rules: 图片+修改 → vision 工作区任务（截图改网站）", () => {
   const v = applyRules({ goal: "按照参考图修改网页", attachments: [{ kind: "image", mime: "image/png", name: "ref.png" }] });
@@ -166,4 +167,12 @@ test("rules: 综合任务（图+CSV+网站+打包）→ zip 契约（不被 xlsx
   assert.equal(v.deliveryContract.kind, "zip");
   assert.ok(v.capabilities.includes("vision"));
   assert.ok(v.capabilities.includes("spreadsheet"));
+});
+
+test("attachments: PNG 无 MIME 时按扩展名识别为 image（Blob 无 type 上传回归，2026-08-17）", () => {
+  const a = attachmentsFromFiles([{ filename: "reference.png" }, { filename: "data.csv" }, { filename: "photo.JPG" }, { filename: "noext" }]);
+  assert.equal(a[0].kind, "image");
+  assert.equal(a[1].kind, "spreadsheet");
+  assert.equal(a[2].kind, "image");
+  assert.equal(a[3].kind, "file");
 });

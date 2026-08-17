@@ -8,7 +8,7 @@ export function attachmentsFromFiles(files: FileLike[]): PreflightAttachment[] {
   return files.map((f) => {
     const name = String(f.filename);
     const mime = String(f.mime || "");
-    const kind = mime.startsWith("image/") ? "image"
+    const kind = mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(name) ? "image"
       : /\.zip$/i.test(name) ? "archive"
       : /\.(xlsx|csv)$/i.test(name) ? "spreadsheet"
       : /\.(docx|doc)$/i.test(name) ? "document"
