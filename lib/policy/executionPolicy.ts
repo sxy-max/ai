@@ -57,8 +57,7 @@ export type ExecutionPolicyInput = {
 };
 
 /** 运行时偏好（按任务类型；deterministic-first）。本 Goal：Claude Code 为唯一主 Harness——
- * 工作区任务默认 Claude Code（file-agent 容器）；AgentScope 保留为 legacy（AGENTSCOPE_URL
- * 配置且 FORCE_AGENTSCOPE=1 时才进入，生产默认路径不经过 AgentScope Agent Loop）。 */
+ * 工作区任务恒为 Claude Code（file-agent 容器）；AgentScope legacy 已删除。 */
 function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId[]): RuntimeSelection {
   const has = (id: RuntimeId) => availableRuntimes.includes(id);
   const prefer = (primary: RuntimeId, fallbacks: RuntimeId[], reason: string): RuntimeSelection => ({
@@ -71,11 +70,8 @@ function runtimeFor(requirements: TaskRequirements, availableRuntimes: RuntimeId
   if (!requirements.workspaceNeeded) {
     return prefer("deterministic", [], "no-workspace: deterministic generator");
   }
-  if (process.env.FORCE_AGENTSCOPE === "1" && process.env.AGENTSCOPE_URL?.trim()) {
-    return prefer("agentscope", ["claude-code"], "forced-agentscope (legacy path)");
-  }
-  // 本 Goal：Claude Code 主 Harness（file-agent 容器）；agentscope 仅显式 legacy
-  return prefer("claude-code", ["agentscope"], "workspace-task: Claude Code primary (current architecture)");
+  // 本 Goal：Claude Code 主 Harness（file-agent 容器）
+  return prefer("claude-code", [], "workspace-task: Claude Code primary (current architecture)");
 }
 
 /** 工具集合按任务授权（WP11：与 Tool Registry 2.0 工具名一致；不是把所有工具都给 Agent）。 */
@@ -84,7 +80,7 @@ function toolsFor(requirements: TaskRequirements): string[] {
   const tools = ["filesystem.read", "filesystem.write", "filesystem.list", "artifact.register"];
   if (requirements.artifactKinds.some((k) => k === "zip")) tools.push("archive.extract", "archive.pack");
   if (requirements.visionNeeded) tools.push("vision.read_context");
-  // V1.4 WP8-10：表格意图任务授权 spreadsheet 工具（AgentScope/sandbox 通道可用；
+  // V1.4 WP8-10：表格意图任务授权 spreadsheet 工具（容器侧工具集授权；
   // Claude Code 通道工具集由容器侧决定——见 EXECUTION_STATE limitation）
   if (requirements.artifactKinds.some((k) => k === "xlsx" || k === "csv")) {
     tools.push("spreadsheet.read_workbook", "spreadsheet.list_sheets", "spreadsheet.read_range", "spreadsheet.write_range", "spreadsheet.add_sheet", "spreadsheet.delete_sheet", "spreadsheet.sort_range", "spreadsheet.filter_rows", "spreadsheet.create_formula", "spreadsheet.create_chart", "spreadsheet.format_cells", "spreadsheet.save_workbook");
@@ -102,7 +98,7 @@ function toolsFor(requirements: TaskRequirements): string[] {
  */
 export function planExecutionPolicy(input: ExecutionPolicyInput): ExecutionPolicy {
   const req = input.requirements;
-  const runtimes: RuntimeId[] = input.availableRuntimes?.length ? input.availableRuntimes : ["deterministic", "claude-code", "agentscope"];
+  const runtimes: RuntimeId[] = input.availableRuntimes?.length ? input.availableRuntimes : ["deterministic", "claude-code"];
   const runtime = runtimeFor(req, runtimes);
 
   // executor 判定（与 Task Router 对齐；退化成 chat 被禁止）

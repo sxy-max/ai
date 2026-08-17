@@ -23,11 +23,12 @@ export type MainModelSelection = {
 
 const FLASH = "deepseek-v4-flash";
 const PRO = "deepseek-v4-pro";
-const KIMI = "kimi-k3";
-const GLM = "glm-5.2";
-const QWEN = "qwen3.8-max";
 
-const APPROVED_POOL = [FLASH, PRO, KIMI, GLM, QWEN];
+// 批准主模型池（2026-08-17 收敛）：主链只用 DeepSeek 系。
+// kimi-k3/qwen3.8-max/glm-5.2 已移出（成本/策略）；minimax-m3 是 Vision Specialist，
+// 绝不选为主模型（视觉经 vision-mcp 进入）。如需重新启用候选，经 AGENT_MODEL 或
+// availableModels 注入即可（capability-safe 校验仍在）。
+const APPROVED_POOL = [FLASH, PRO];
 
 export type AutoModelInput = {
   capabilities: DirectiveCapability[];
@@ -87,9 +88,9 @@ export async function resolveMainModel(input: AutoModelInput): Promise<MainModel
 
 function chainFor(role: "agent" | "chat" | "reasoning"): string[] {
   switch (role) {
-    case "agent": return [FLASH, KIMI, PRO];      // Coding/Workspace 主力
-    case "reasoning": return [PRO, QWEN, GLM, FLASH];
-    case "chat": return [FLASH, KIMI, GLM];
+    case "agent": return [FLASH, PRO];      // Coding/Workspace 主力
+    case "reasoning": return [PRO, FLASH];
+    case "chat": return [FLASH, PRO];
   }
 }
 

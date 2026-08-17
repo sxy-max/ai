@@ -173,7 +173,10 @@ async function runClaude(payload, res) {
     const servers = Object.keys(JSON.parse(mcpConfig).mcpServers || {});
     for (const name of servers) args.push("--allowedTools", "mcp__" + name + "__*");
   }
-  args.push("--permission-mode", "acceptEdits"); // 工作区内自主编辑（容器已隔离）
+  // 容器内全权限（bypass）：隔离沙盒（非 root、仅 workspace 挂载、无 docker/socket/真实 key），
+  // 需要 Bash 完成真实工作（打包 zip、运行验证、本地服务器浏览器渲染）。
+  // acceptEdits 只授权文件编辑 → claude 无法 zip/起服务/验证，契约型任务（C08 打包）必然失败。
+  args.push("--permission-mode", "bypassPermissions");
 
   log("claude", model, "mcp:", mcpConfig ? JSON.parse(mcpConfig).mcpServers : "none", "turns:", payload.maxTurns || MAX_TURNS);
 

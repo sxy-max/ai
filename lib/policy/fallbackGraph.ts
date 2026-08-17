@@ -7,13 +7,14 @@
 import { capabilitiesForModel, modelHasCapability, type CapabilityId } from "./capabilities";
 import type { ModelRolePolicy } from "./modelPolicy";
 
-/** 角色降级链（顺序即优先级；与 ModelPolicyEngine 角色链一致）。 */
+/** 角色降级链（顺序即优先级；与 ModelPolicyEngine 角色链一致）。
+ *  2026-08-17 收敛：主链 DeepSeek 系；vision 仅 MiniMax（Specialist）。 */
 export const FALLBACK_CHAINS: Record<ModelRolePolicy, string[]> = {
-  chat: ["deepseek-v4-flash", "kimi-k3", "glm-5.2"],
+  chat: ["deepseek-v4-flash", "deepseek-v4-pro"],
   planner: ["deepseek-v4-pro", "deepseek-v4-flash"],
   content: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  agent: ["deepseek-v4-flash", "kimi-k3", "deepseek-v4-pro"],
-  reasoning: ["deepseek-v4-pro", "qwen3.8-max", "glm-5.2", "deepseek-v4-flash"],
+  agent: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  reasoning: ["deepseek-v4-pro", "deepseek-v4-flash"],
   vision: ["minimax-m3"],
 };
 

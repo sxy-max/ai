@@ -33,7 +33,7 @@ export type ModelSelectionResult = {
   fallbackTried: string[];
 };
 
-const DEFAULT_AVAILABLE = ["deepseek-v4-pro", "deepseek-v4-flash", "minimax-m3", "qwen3.8-max", "glm-5.2", "kimi-k3"];
+const DEFAULT_AVAILABLE = ["deepseek-v4-pro", "deepseek-v4-flash", "minimax-m3"];
 
 type ResolvedConfig = {
   planner?: string;
@@ -73,17 +73,17 @@ export function selectModel(input: ModelSelectionInput): ModelSelectionResult {
   const fallbackTried: string[] = [];
 
   const roleChains: Record<ModelRolePolicy, string[]> = {
-    // A. 普通知识/文本：稳定低成本优先
-    chat: [config.chat || "deepseek-v4-flash", "kimi-k3", "glm-5.2"],
+    // A. 普通知识/文本：稳定低成本优先（2026-08-17：主链收敛 DeepSeek 系）
+    chat: [config.chat || "deepseek-v4-flash", "deepseek-v4-pro"],
     // 规划：内容模型即可（确定性规则优先于 LLM 规划）
     planner: [config.planner || "deepseek-v4-pro", "deepseek-v4-flash"],
     // E. 产物内容：稳定内容模型
     content: [config.content || "deepseek-v4-pro", "deepseek-v4-flash"],
     // C. 文件 Agent：tool execution 优先（flash），非长推理
-    agent: [config.agent || "deepseek-v4-flash", "kimi-k3", "deepseek-v4-pro"],
+    agent: [config.agent || "deepseek-v4-flash", "deepseek-v4-pro"],
     // B. 高难推理：reasoning model
-    reasoning: [config.reasoning || "deepseek-v4-pro", "qwen3.8-max", "glm-5.2", "deepseek-v4-flash"],
-    // D. 视觉：视觉模型只负责观察
+    reasoning: [config.reasoning || "deepseek-v4-pro", "deepseek-v4-flash"],
+    // D. 视觉：视觉模型只负责观察（Vision Specialist）
     vision: [config.vision || "minimax-m3"],
   };
 

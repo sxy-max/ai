@@ -5,7 +5,7 @@
  *
  * 第一实现：DockerSandboxRuntime —— 组合 WorkspaceManager（共享卷文件访问）
  * 与 AgentRuntimeAdapter（容器 exec 流式），契约与现有 file-agent 容器对齐。
- * 未来可替换：AgentScope Runtime / E2B / Modal / microVM，不重写任务系统。
+ * 未来可替换：E2B / Modal / microVM 等沙箱后端，不重写任务系统。
  */
 
 import fs from "node:fs";

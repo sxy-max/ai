@@ -45,11 +45,10 @@ const LEASE_RENEW_INTERVAL_MS = 30_000;
 const WORKSPACE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 每 6 小时
 const WORKSPACE_TTL_MS = 7 * 24 * 60 * 60 * 1000;          // workspace TTL 7 天
 
-/** 可用运行时（V1.2 WP7）：deterministic 恒可用；claude-code 由 AGENT_URL 判定；agentscope 由 AGENTSCOPE_URL 判定。 */
-export function runtimeAvailability(): Array<"deterministic" | "claude-code" | "agentscope"> {
-  const available: Array<"deterministic" | "claude-code" | "agentscope"> = ["deterministic"];
+/** 可用运行时（V1.2 WP7）：deterministic 恒可用；claude-code 由 AGENT_URL 判定。 */
+export function runtimeAvailability(): Array<"deterministic" | "claude-code"> {
+  const available: Array<"deterministic" | "claude-code"> = ["deterministic"];
   if (process.env.AGENT_URL?.trim() || process.env.AGENTSCOPE_URL?.trim()) available.push("claude-code");
-  if (process.env.AGENTSCOPE_URL?.trim()) available.push("agentscope");
   return available;
 }
 
@@ -222,7 +221,7 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
       const { readProbeResults, applyProbeCacheToRegistry } = await import("../policy/providerProbe");
       applyProbeCacheToRegistry(await readProbeResults());
       availableModels = providerHealthRegistry.availableModels(
-        (process.env.FEATURED_MODELS || "deepseek-v4-pro,deepseek-v4-flash,kimi-k3,qwen3.8-max,glm-5.2,minimax-m3,gpt-5.6-luna,grok-4.5")
+        (process.env.FEATURED_MODELS || "deepseek-v4-pro,deepseek-v4-flash,minimax-m3,gpt-5.6-luna")
           .split(",").map((m) => m.trim()).filter(Boolean)
       );
     } catch {}

@@ -345,3 +345,54 @@ test("图片任务：始终不交付 → 有限重试（3 次）→ 明确失败
   }
 });
 
+
+test("zip 契约兜底：Claude Code 只产出散文件 → 系统打包 deliverable.zip（机械打包不改内容）", async () => {
+  const task = await query<{ id: string }>(
+    `INSERT INTO tasks (user_id, goal, type, title, status) VALUES ($1, '根据材料重构网站并打包为 zip 交付', 'agent_workspace', 'zip 兜底', 'queued') RETURNING id`,
+    [userId]
+  );
+  const taskId = task.rows[0].id;
+  const uploaded = artifactService.createArtifact({ filename: "index.html", content: "<html><body>旧页面</body></html>", kind: "html", source: "upload" });
+
+  const events: string[] = [];
+  const runtime = new FakeClaudeCodeRuntime();
+  const summary = await runDevStep(
+    {
+      taskId,
+      stepId: "step-1",
+      userId,
+      goal: "根据材料重构网站并打包为 zip 交付",
+      files: [{ id: uploaded.id, filename: "index.html" }],
+      directive: {
+        taskType: "file_transform",
+        goal: "根据材料重构网站并打包为 zip 交付",
+        capabilities: ["coding"],
+        mainModel: "deepseek-v4-flash",
+        fallbackModels: ["deepseek-v4-pro"],
+        mcpServers: [],
+        tools: [],
+        deliveryContract: { kind: "zip", minCount: 1, validate: "format" },
+        reasoning: "auto",
+        profile: "workspace",
+        workspaceMode: "task",
+        timeoutMs: 900000,
+        maxAttempts: 3,
+        policySource: "test",
+      },
+      signal: new AbortController().signal,
+      emit: async (type: string, payload?: Record<string, unknown>) => { events.push(`${type}:${payload?.name || ""}`); }
+    },
+    { adapter: runtime, workspacesRoot: WORKSPACES_ROOT }
+  );
+
+  // zip 产物已注册（deliverable.zip，PK 头）
+  const rows = await query<{ id: string; type: string; name: string }>(
+    "SELECT id, type, name FROM artifacts WHERE task_id = $1 ORDER BY version", [taskId]
+  );
+  const zipRow = rows.rows.find((r) => r.type === "zip");
+  assert.ok(zipRow, `应有 zip 产物（实际：${rows.rows.map((r) => r.type).join(",")}）`);
+  const buf = artifactService.readContent(zipRow!.id);
+  assert.ok(buf && buf.subarray(0, 2).toString() === "PK", "zip 内容应为 PK 头");
+  assert.ok(events.some((e) => e.includes("deliverable.zip")), "应有 deliverable.zip 事件");
+  assert.match(summary.summary, /2 个文件/); // result.md + deliverable.zip
+});

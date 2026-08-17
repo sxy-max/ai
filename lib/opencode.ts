@@ -16,25 +16,22 @@ export type ModelCapabilities = {
 
 export const API_ROOT = (process.env.OPENCODE_GO_BASE_URL || "https://opencode.ai/zen/go/v1").replace(/\/+$/, "");
 
+// 模型池主动缩小（用户决策 2026-08-17）：主链只用 DeepSeek 系（flash 高频 / pro 推理）；
+// minimax-m3 仅作 Vision Specialist（不进主链）；luna 地区门控保留。
+// kimi-k3 / qwen3.8-max / glm-5.2 / grok-4.5 已移出默认列表（成本/上游策略），
+// 如需重新启用：FEATURED_MODELS 或 AGENT_MODEL 环境变量指定即可（代码层协议仍支持）。
 export const DEFAULT_FEATURED_MODEL_IDS = [
   "gpt-5.6-luna",
-  "grok-4.5",
-  "kimi-k3",
-  "qwen3.8-max",
-  "glm-5.2",
-  "minimax-m3",
-  "deepseek-v4-pro"
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "minimax-m3"
 ];
 
 const FEATURED_MODEL_USE_CASES: Record<string, string> = {
-  "gpt-5.6-luna": "最强综合/复杂任务",
-  "grok-4.5": "强表达/开放问答",
-  "kimi-k3": "前端/多步执行",
-  "glm-5.2": "中文综合/稳定思考",
-  "deepseek-v4-flash": "高频快速备用",
+  "gpt-5.6-luna": "最强综合/复杂任务（地区门控）",
+  "deepseek-v4-flash": "DeepSeek/中国 · 高频快速默认",
   "deepseek-v4-pro": "DeepSeek/中国 · 稳定推理",
-  "minimax-m3": "MiniMax/中国 · 长文/工具",
-  "qwen3.8-max": "阿里/中国 · 强模型"
+  "minimax-m3": "MiniMax/中国 · Vision Specialist"
 };
 
 function normalizeFeaturedId(id: string) {
@@ -83,7 +80,7 @@ export function protocolForModel(model: string, provider?: Provider): Protocol |
   return null;
 }
 
-const KNOWN_VISION: Record<string, boolean> = { "kimi-k3": true, "glm-5.2": false };
+const KNOWN_VISION: Record<string, boolean> = {};
 
 export function capabilitiesForModel(model: string, raw: Record<string, unknown> = {}): ModelCapabilities {
   const protocol = protocolForModel(model, "opencode-go");

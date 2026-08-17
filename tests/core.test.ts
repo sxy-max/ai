@@ -35,12 +35,9 @@ test("featured models add one stable Claude only when it is available", () => {
   assert.deepEqual(featuredModelIds(claude), [
     "gpt-5.6-luna",
     "anthropic/claude-sonnet-5",
-    "grok-4.5",
-    "kimi-k3",
-    "qwen3.8-max",
-    "glm-5.2",
-    "minimax-m3",
-    "deepseek-v4-pro"
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "minimax-m3"
   ]);
 });
 

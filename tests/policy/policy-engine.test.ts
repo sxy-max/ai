@@ -35,7 +35,6 @@ test("ZIP 项目修改 → workspace + agent runtime（不退化成 chat）", ()
   assert.equal(policy.executor, "workspace");
   assert.equal(policy.modelRole, "agent");
   assert.equal(policy.runtime.runtime, "claude-code"); // 本 Goal：Claude Code 唯一主 Harness
-  assert.equal(policy.runtime.fallbackRuntimes[0], "agentscope");
   assert.equal(policy.tools.includes("archive.extract"), true);
   assert.equal(policy.tools.includes("archive.pack"), true);
   assert.equal(policy.retry.maxAttempts, 3);
@@ -74,27 +73,12 @@ test("V1.3 WP10：模型角色分离（planner/executor/vision 独立选择）",
   const simple = planExecutionPolicy(input({ artifactKinds: ["pptx"], taskType: "artifact_generation" }));
   assert.equal(simple.executorModel, undefined);
 });
-test("FORCE_AGENTSCOPE=1 + AGENTSCOPE_URL：工作区任务走 AgentScope（legacy 开关）", () => {
-  const old = process.env.FORCE_AGENTSCOPE;
-  const oldUrl = process.env.AGENTSCOPE_URL;
-  process.env.FORCE_AGENTSCOPE = "1";
-  process.env.AGENTSCOPE_URL = "http://agent-runtime:8000";
-  try {
-    const policy = planExecutionPolicy(input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "file_transform" }));
-    assert.equal(policy.runtime.runtime, "agentscope");
-  } finally {
-    if (old === undefined) delete process.env.FORCE_AGENTSCOPE; else process.env.FORCE_AGENTSCOPE = old;
-    if (oldUrl === undefined) delete process.env.AGENTSCOPE_URL; else process.env.AGENTSCOPE_URL = oldUrl;
-  }
-});
-
-test("AgentScope 不可用（未在 availableRuntimes）→ 不选它", () => {
+test("工作区任务 → claude-code（唯一主 Harness；运行时不可用由 prepare 层明确报错）", () => {
   const policy = planExecutionPolicy({
     ...input({ workspaceNeeded: true, artifactKinds: ["file"], taskType: "workspace_agent" }),
-    availableRuntimes: ["claude-code"],
+    availableRuntimes: ["deterministic"],
   });
-  assert.equal(policy.runtime.runtime, "claude-code"); // 默认主 Harness
-  assert.equal(policy.runtime.fallbackRuntimes[0], "agentscope"); // legacy fallback 保留
+  assert.equal(policy.runtime.runtime, "claude-code"); // prefer 语义：主 Harness 恒定，prepare 不可用才明确失败
 });
 
 test("简单文件任务 → 2 次修复尝试", () => {
@@ -127,8 +111,8 @@ test("Vision → minimax-m3（视觉模型只负责观察）", () => {
 
 test("capability-safe fallback：首选不可用 → 同角色降级链，不随机换模型", () => {
   const result = selectModel({ role: "reasoning", availableModels: ["glm-5.2", "deepseek-v4-flash"] });
-  // 链：deepseek-v4-pro → qwen3.8-max → glm-5.2 → flash；glm-5.2 可用
-  assert.equal(result.model, "glm-5.2");
+  // 链：deepseek-v4-pro → flash（2026-08-17 收敛后主链 DeepSeek 系）；glm-5.2 在池外
+  assert.equal(result.model, "deepseek-v4-flash");
   assert.ok(result.fallbackTried.includes("deepseek-v4-pro"));
 });
 
@@ -141,6 +125,6 @@ test("能力过滤：需求 vision 时无 vision 模型列表 → 明确无可�
 });
 
 test("配置覆盖：AGENT_MODEL 环境变量优先于默认链", () => {
-  const result = selectModel({ role: "agent", configured: { agent: "kimi-k3" } });
-  assert.equal(result.model, "kimi-k3");
+  const result = selectModel({ role: "agent", configured: { agent: "deepseek-v4-pro" } });
+  assert.equal(result.model, "deepseek-v4-pro");
 });

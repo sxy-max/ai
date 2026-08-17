@@ -17,7 +17,7 @@ test("工具元数据：能力/超时/副作用/结果 schema 集中声明", () 
   const python = TOOL_REGISTRY["code.python.exec"];
   assert.ok(python.capabilities?.includes("code_execution"));
   assert.ok(python.sideEffects?.includes("process-spawn"));
-  assert.deepEqual(python.runtimeAvailability, ["claude-code", "agentscope"]);
+  assert.deepEqual(python.runtimeAvailability, ["claude-code"]);
 });
 
 test("授权：按能力查询（file_read 覆盖读/解压/注册/视觉工具）", () => {

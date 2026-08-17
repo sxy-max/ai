@@ -28,10 +28,10 @@ after(async () => {
 
 test("Job 生命周期：queued→running→completed，checkpoint 落盘", async () => {
   const task = await createTask({ userId, goal: "测试任务", title: "job-test" });
-  const job = await createJob({ taskId: task.id, userId, projectId: null, runtime: "agentscope", workspaceId: "tasks/x" });
+  const job = await createJob({ taskId: task.id, userId, projectId: null, runtime: "claude-code", workspaceId: "tasks/x" });
   assert.equal(job.status, "queued");
   assert.equal(job.attempt, 1);
-  assert.equal(job.runtime, "agentscope");
+  assert.equal(job.runtime, "claude-code");
 
   await updateJobStatus(job.id, "running", { current_step: "分析输入" });
   await writeJobCheckpoint(job.id, { stepSeq: 1, stepId: "s1", loopPhase: "act", attempt: 1, budgetTier: "tool_loop" }, "分析输入");
@@ -91,7 +91,7 @@ test("过期 Job 认领：lease 超时且非终态 → 其他 worker 接管（re
 
 test("V1.3 WP12：worker 死亡后 Job 租约恢复（任务重新入队）", async () => {
   const task = await createTask({ userId, goal: "崩溃恢复", title: "job-recover" });
-  const job = await createJob({ taskId: task.id, userId, runtime: "agentscope" });
+  const job = await createJob({ taskId: task.id, userId, runtime: "claude-code" });
   // 模拟 worker 崩溃：任务 running + lease 过期 + job running + lease 过期
   await query("UPDATE tasks SET status = 'running', lease_expires = now() - interval '1 minute' WHERE id = $1", [task.id]);
   await query("UPDATE jobs SET status = 'running', lease_owner = 'dead', lease_until = now() - interval '1 minute' WHERE id = $1", [job.id]);
@@ -108,8 +108,8 @@ test("V1.3 WP12：worker 死亡后 Job 租约恢复（任务重新入队）", as
 });
 test("AgentSession：创建→工具计数→完成关闭", async () => {
   const task = await createTask({ userId, goal: "会话", title: "session-test" });
-  const job = await createJob({ taskId: task.id, userId, runtime: "agentscope" });
-  const session = await createAgentSession({ jobId: job.id, taskId: task.id, userId, runtime: "agentscope", workspaceId: "tasks/x" });
+  const job = await createJob({ taskId: task.id, userId, runtime: "claude-code" });
+  const session = await createAgentSession({ jobId: job.id, taskId: task.id, userId, runtime: "claude-code", workspaceId: "tasks/x" });
   assert.equal(session.state, "created");
 
   await updateAgentSession(session.id, { state: "running", tool_calls: 3 });

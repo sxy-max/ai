@@ -48,7 +48,7 @@ export type ModelCapabilities = {
   region?: string;
 };
 
-export type RuntimeId = "deterministic" | "claude-code" | "agentscope";
+export type RuntimeId = "deterministic" | "claude-code";
 
 export type RuntimeCapabilities = {
   id: RuntimeId;
@@ -103,11 +103,8 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     reasoning: "high",
     capabilities: new Set(["text_generation", "reasoning", "long_context", "structured_output"]),
   },
-  "kimi-k3": {
-    id: "kimi-k3",
-    reasoning: "medium",
-    capabilities: new Set(["text_generation", "reasoning", "file_read", "tool_execution", "multi_step_agent", "long_context"]),
-  },
+  // 2026-08-17：kimi-k3 已移出模型池（用户成本决策）；能力数据保留在协议层，
+  // 经 AGENT_MODEL/FEATURED_MODELS 重新启用时仍有 capability-safe 校验。
   // 研究路径保留（当前 region 受限；见 WP18 ProviderHealthRegistry / WP24 ProviderRoute）
   "gpt-5.6-luna": {
     id: "gpt-5.6-luna",
@@ -141,11 +138,6 @@ const KNOWN_RUNTIMES: Record<RuntimeId, RuntimeCapabilities> = {
   "claude-code": {
     id: "claude-code",
     capabilities: new Set(["code_execution", "shell", "multi_step_agent", "workspace", "tool_execution", "file_read", "file_write", "project_edit"]),
-  },
-  agentscope: {
-    id: "agentscope",
-    // V1.2 WP8 实测：workspace 内置 6 工具（Bash/PowerShell、Edit、Glob、Grep、Read、Write）+ state/event_stream
-    capabilities: new Set(["multi_step_agent", "workspace", "tool_execution", "state", "event_stream", "file_read", "file_write", "shell", "code_execution", "project_edit"]),
   },
 };
 

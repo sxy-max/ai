@@ -61,24 +61,24 @@ test("availableModels 过滤 + snapshot", () => {
 
 /* ---------- WP19 FallbackGraph ---------- */
 
-test("复杂推理降级：pro 不可用 → qwen（reasoning 能力）→ glm，不随机", () => {
+test("复杂推理降级：pro 不可用 → flash（DeepSeek 系内降级，不随机换供应商）", () => {
   const result = fallbackFor({
     role: "reasoning",
     failedModel: "deepseek-v4-pro",
     availableModels: ["glm-5.2", "deepseek-v4-flash", "qwen3.8-max"],
   });
   assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.model, "qwen3.8-max");
+  if (result.ok) assert.equal(result.model, "deepseek-v4-flash");
 });
 
-test("Agent 降级：flash 不可用 → kimi（tool execution）", () => {
+test("Agent 降级：flash 不可用 → pro（tool execution）", () => {
   const result = fallbackFor({
     role: "agent",
     failedModel: "deepseek-v4-flash",
     availableModels: ["kimi-k3", "deepseek-v4-pro"],
   });
   assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.model, "kimi-k3");
+  if (result.ok) assert.equal(result.model, "deepseek-v4-pro");
 });
 
 test("Vision 降级：无 vision 模型可用 → 明确失败（不硬选无视觉模型）", () => {
@@ -101,6 +101,6 @@ test("capability-safe：available 但能力不足的模型被跳过", () => {
 });
 
 test("chat 降级链与 ModelPolicy 一致", () => {
-  assert.deepEqual(FALLBACK_CHAINS.chat, ["deepseek-v4-flash", "kimi-k3", "glm-5.2"]);
-  assert.deepEqual(FALLBACK_CHAINS.reasoning, ["deepseek-v4-pro", "qwen3.8-max", "glm-5.2", "deepseek-v4-flash"]);
+  assert.deepEqual(FALLBACK_CHAINS.chat, ["deepseek-v4-flash", "deepseek-v4-pro"]);
+  assert.deepEqual(FALLBACK_CHAINS.reasoning, ["deepseek-v4-pro", "deepseek-v4-flash"]);
 });

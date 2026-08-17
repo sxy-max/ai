@@ -54,12 +54,9 @@ test("WP24：模型 region 能力声明（ProviderRoute 用，非代码 if model
   const flash = capabilitiesForModel("deepseek-v4-flash");
   assert.equal(flash.region, undefined, "普通模型无区域要求");
 });
-test("runtime 能力：claude-code 有 shell/code；agentscope 有 state/event_stream/shell（V1.2 实测内置 Bash/PowerShell）；deterministic 只有生成类", () => {
+test("runtime 能力：claude-code 有 shell/code；deterministic 只有生成类", () => {
   assert.equal(runtimeHasCapability("claude-code", "shell"), true);
   assert.equal(runtimeHasCapability("claude-code", "code_execution"), true);
-  assert.equal(runtimeHasCapability("agentscope", "state"), true);
-  assert.equal(runtimeHasCapability("agentscope", "event_stream"), true);
-  assert.equal(runtimeHasCapability("agentscope", "shell"), true, "AgentScope 内置 Bash/PowerShell 工具（WP8 实测）");
   assert.equal(runtimeHasCapability("deterministic", "presentation_generation"), true);
   assert.equal(runtimeHasCapability("deterministic", "multi_step_agent"), false);
 });

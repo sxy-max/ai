@@ -4,7 +4,7 @@
  * 统一事件（11 种）：agent_started / step_started / tool_called / tool_result /
  *   file_changed / artifact_created / validation_failed / repair_started /
  *   step_completed / agent_completed / agent_failed。
- * 不同 Runtime（Claude Code / AgentScope）都映射到这一事件模型；UI 只认识 AgentEvent。
+ * 所有执行（Claude Code 统一 Harness）都映射到这一事件模型；UI 只认识 AgentEvent。
  */
 
 export type AgentLoopPhase = "plan" | "act" | "observe" | "validate" | "repair" | "finish";

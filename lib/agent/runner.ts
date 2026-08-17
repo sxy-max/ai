@@ -12,7 +12,6 @@ import type { AgentRuntimeAdapter, SandboxRunRequest } from "../sandbox/adapter"
 import { statusForTool, statusLabel, toolLabel } from "../job/events";
 import type { JobEvent, JobStatus } from "../job/events";
 import type { WorkspaceManager } from "../workspace/service";
-import type { JobStore } from "./jobStore";
 
 export type RunAgentJobInput = {
   conversationId: string;
@@ -37,7 +36,6 @@ export type RunAgentJobInput = {
   continueSession?: boolean;
   workspace: WorkspaceManager;
   adapter: AgentRuntimeAdapter;
-  store: JobStore;
   /** 把 workspace 内文件登记进 Artifact Service；返回 null 表示跳过。 */
   registerArtifact: (name: string, content: Buffer) => Promise<ClientArtifact | null | undefined>;
 };
@@ -53,7 +51,7 @@ export type JobRunOutcome = {
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
 export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: JobEvent) => void): Promise<JobRunOutcome> {
-  const { workspace, store, jobId, conversationId, adapter } = input;
+  const { workspace, jobId, conversationId, adapter } = input;
   const emit = (event: JobEvent) => {
     try {
       onEvent?.(event);
@@ -61,10 +59,8 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
   };
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  store.create(jobId, conversationId);
   emit({ type: "status", status: "queued", message: statusLabel("queued") });
 
-  store.updateStatus(jobId, "creating_workspace");
   emit({ type: "status", status: "creating_workspace", message: statusLabel("creating_workspace") });
   try {
     workspace.writeTaskSpec({
@@ -79,13 +75,11 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    store.updateStatus(jobId, "failed", { error: message });
     emit({ type: "error", code: "task_spec_write_failed", message: `任务说明写入失败：${message}` });
     emit({ type: "status", status: "failed", message: statusLabel("failed") });
     return { status: "failed", result: { ok: false, error: message }, artifactCount: 0 };
   }
 
-  store.updateStatus(jobId, "reading_files");
   emit({ type: "status", status: "reading_files", message: statusLabel("reading_files") });
 
   let artifactCount = 0;
@@ -115,7 +109,6 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
           const next = statusForTool(event.name);
           if (next !== phase) {
             phase = next;
-            store.updateStatus(jobId, next);
             emit({ type: "status", status: next, message: statusLabel(next) });
           }
           break;
@@ -156,12 +149,10 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
   }
 
   if (result.ok) {
-    store.updateStatus(jobId, "done", { exitCode: result.exitCode, artifactCount });
     emit({ type: "status", status: "done", message: result.exitCode === 0 ? "已完成" : "未完全完成，已保留结果" });
     return { status: "done", result, artifactCount };
   }
 
-  store.updateStatus(jobId, "failed", { error: result.error, artifactCount });
   emit({ type: "status", status: "failed", message: statusLabel("failed") });
   return { status: "failed", result, artifactCount };
 }

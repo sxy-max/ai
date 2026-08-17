@@ -138,9 +138,6 @@ test("build: 无健康模型 → 明确错误（不随机替换）", async () =>
   const health = new ProviderHealthRegistry();
   health.record("deepseek-v4-flash", { status: "temporary_unavailable", probedAt: Date.now() });
   health.record("deepseek-v4-pro", { status: "disabled", probedAt: Date.now() });
-  health.record("kimi-k3", { status: "region_unavailable", probedAt: Date.now() });
-  health.record("glm-5.2", { status: "disabled", probedAt: Date.now() });
-  health.record("qwen3.8-max", { status: "disabled", probedAt: Date.now() });
   await assert.rejects(() => buildDirective({ goal: "写一个程序", health }), /PREFLIGHT_NO_MODEL/);
 });
 

@@ -4,7 +4,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WorkspaceManager } from "../../lib/workspace/service";
-import { JobStore } from "../../lib/agent/jobStore";
 import { runAgentJob } from "../../lib/agent/runner";
 import type { AgentRuntimeAdapter, SandboxRunEvent, SandboxRunRequest, SandboxRunResult } from "../../lib/sandbox/adapter";
 import type { ClientArtifact } from "../../lib/artifacts/types";
@@ -38,7 +37,6 @@ function makeWs() {
 test("1. 正常流：任务说明写入、事件透传、artifacts 登记、job done", async () => {
   const { ws } = makeWs();
   fs.writeFileSync(path.join(ws.dirs.output, "report.md"), "# ok");
-  const store = new JobStore();
   const forwarded: string[] = [];
   const registered: { name: string; content: Buffer }[] = [];
 
@@ -59,7 +57,6 @@ test("1. 正常流：任务说明写入、事件透传、artifacts 登记、job 
       style: "简洁",
       workspace: ws,
       adapter,
-      store,
       registerArtifact: async (name, content) => {
         registered.push({ name, content });
         return { ...FAKE_ARTIFACT, name };
@@ -70,8 +67,6 @@ test("1. 正常流：任务说明写入、事件透传、artifacts 登记、job 
 
   assert.equal(outcome.status, "done");
   assert.equal(outcome.artifactCount, 1);
-  assert.equal(store.get("job1")?.status, "done");
-  assert.equal(store.get("job1")?.artifactCount, 1);
   // 事件顺序：queued → creating_workspace → reading_files → tool → progress → artifact → done → status(done)
   assert.deepEqual(forwarded, ["status", "status", "status", "tool", "progress", "artifact", "done", "status"]);
   // 任务说明写入 workspace
@@ -85,7 +80,6 @@ test("1. 正常流：任务说明写入、事件透传、artifacts 登记、job 
 
 test("2. 失败（超时）：job failed、保留 error、仍发出错误事件", async () => {
   const { ws } = makeWs();
-  const store = new JobStore();
   const forwarded: string[] = [];
   const adapter = fakeAdapter({
     events: [{ type: "error", message: "沙箱执行超时" }],
@@ -93,22 +87,19 @@ test("2. 失败（超时）：job failed、保留 error、仍发出错误事件"
   });
 
   const outcome = await runAgentJob(
-    { conversationId: "c", jobId: "job2", prompt: "x", workspace: ws, adapter, store, registerArtifact: async () => null },
+    { conversationId: "c", jobId: "job2", prompt: "x", workspace: ws, adapter, registerArtifact: async () => null },
     (event) => forwarded.push(event.type)
   );
 
   assert.equal(outcome.status, "failed");
   assert.ok(!outcome.result.ok);
   if (!outcome.result.ok) assert.equal(outcome.result.error, "sandbox_timeout");
-  assert.equal(store.get("job2")?.status, "failed");
-  assert.equal(store.get("job2")?.error, "sandbox_timeout");
   assert.ok(forwarded.includes("error"));
   assert.equal(forwarded.at(-1), "status");
 });
 
 test("3. adapter 抛异常 → 也标记 failed 而非崩掉", async () => {
   const { ws } = makeWs();
-  const store = new JobStore();
   const adapter: AgentRuntimeAdapter = {
     id: "fake", available: true,
     async prepare() { return { ok: true }; },
@@ -118,16 +109,14 @@ test("3. adapter 抛异常 → 也标记 failed 而非崩掉", async () => {
     async cleanup() {}
   };
   const outcome = await runAgentJob(
-    { conversationId: "c", jobId: "job3", prompt: "x", workspace: ws, adapter, store, registerArtifact: async () => null },
+    { conversationId: "c", jobId: "job3", prompt: "x", workspace: ws, adapter, registerArtifact: async () => null },
     () => {}
   );
   assert.equal(outcome.status, "failed");
-  assert.equal(store.get("job3")?.status, "failed");
 });
 
 test("4. artifacts 逃逸路径（../）不登记；缺失文件跳过", async () => {
   const { ws } = makeWs();
-  const store = new JobStore();
   const registered: string[] = [];
   const adapter = fakeAdapter({
     events: [
@@ -137,7 +126,7 @@ test("4. artifacts 逃逸路径（../）不登记；缺失文件跳过", async (
   });
 
   const outcome = await runAgentJob(
-    { conversationId: "c", jobId: "job4", prompt: "x", workspace: ws, adapter, store, registerArtifact: async (name) => (registered.push(name), { ...FAKE_ARTIFACT, name }) },
+    { conversationId: "c", jobId: "job4", prompt: "x", workspace: ws, adapter, registerArtifact: async (name) => (registered.push(name), { ...FAKE_ARTIFACT, name }) },
     () => {}
   );
   assert.equal(outcome.status, "done");

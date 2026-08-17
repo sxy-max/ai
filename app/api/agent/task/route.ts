@@ -5,7 +5,6 @@ import { artifactService } from "../../../../lib/artifacts/service";
 import type { ClientArtifact } from "../../../../lib/artifacts/types";
 import { WorkspaceManager } from "../../../../lib/workspace/service";
 import { GoFileAgentAdapter } from "../../../../lib/sandbox/dockerClaudeCode";
-import { JobStore } from "../../../../lib/agent/jobStore";
 import { runAgentJob } from "../../../../lib/agent/runner";
 import { serializeJobEvent } from "../../../../lib/job/events";
 import type { JobEvent } from "../../../../lib/job/events";
@@ -17,7 +16,6 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 900;
 
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/data/workspaces";
-const jobStore = new JobStore();
 
 export async function POST(request: Request) {
   const confErr = accessConfigurationError();
@@ -83,7 +81,6 @@ export async function POST(request: Request) {
             fileManifest: true,
             workspace: ws,
             adapter,
-            store: jobStore,
             registerArtifact,
           },
           emitWire

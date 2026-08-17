@@ -18,9 +18,7 @@
 import path from "node:path";
 import { artifactService } from "../artifacts/service";
 import { GoFileAgentAdapter } from "../sandbox/dockerClaudeCode";
-import { AgentScopeRuntimeAdapter } from "../sandbox/agentscopeRuntime";
 import { runAgentJob, JobRunOutcome } from "../agent/runner";
-import { JobStore } from "../agent/jobStore";
 import { closeBrowserSession } from "../browser/tools";
 import { WorkspaceManager } from "../workspace/service";
 import { scanWorkspaceVision, type VisionDescribe } from "../vision/workspaceScanner";
@@ -200,12 +198,8 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   let adapter = deps?.adapter || (await import("../sandbox/adapterOverride")).getAdapterOverride();
   let runtimeId = policy?.runtime?.runtime || "claude-code";
   if (!adapter) {
-    if (runtimeId === "agentscope" && process.env.AGENTSCOPE_URL?.trim()) {
-      adapter = new AgentScopeRuntimeAdapter();
-    } else {
-      adapter = new GoFileAgentAdapter();
-      runtimeId = "claude-code";
-    }
+    adapter = new GoFileAgentAdapter();
+    runtimeId = "claude-code";
   }
   const prepared = await adapter.prepare();
   if (!prepared.ok) throw new Error(`DEV_RUNTIME_UNAVAILABLE：${prepared.error}`);
@@ -226,7 +220,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
     taskId: input.taskId,
     userId: input.userId,
     runtime: runtimeId,
-    model: process.env.AGENTSCOPE_MODEL || process.env.AGENT_MODEL || undefined,
+    model: process.env.AGENT_MODEL || undefined,
     workspaceId,
   });
 
@@ -281,7 +275,6 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
   //   WORKSPACES_ROOT/projects/{projectId}——同项目多轮任务共享同一 workspace（不重复上传原材料）
   const jobId = projectMode ? input.projectId! : input.taskId;
   const conversationId = projectMode ? "projects" : "tasks";
-  const store = new JobStore();
   await input.emit("agent.started", { worker: "dev", title: "Claude Code 沙盒执行中" });
 
   // WP4：执行记录（runtime.json / events.ndjson / logs）
@@ -346,7 +339,6 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
         continueSession: attempt > 0, // repair 轮续接同一会话/工作区，不重开空任务
         workspace: ws,
         adapter,
-        store,
         registerArtifact: async (name: string, content: Buffer) => {
           const base = path.basename(name);
           if (SYSTEM_ARTIFACT_FILES.has(base)) return null; // V1.4：系统文件不注册（agent 主动上报路径同样过滤）
@@ -413,6 +405,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
       }
     } catch {}
     const seen = new Set<string>();
+    const packed: Array<{ name: string; buf: Buffer }> = [];
     for (const output of candidates) {
       if (output.isDir) continue;
       const base = path.basename(output.relPath);
@@ -435,9 +428,46 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           mime: mimeFromKind(kind),
           content: buf
         });
+        packed.push({ name: base, buf });
         collected++;
         await input.emit("artifact.created", { name: base, downloadUrl: `/api/artifacts/${await latestArtifactId(input.taskId, name)}` });
       } catch {}
+    }
+    // zip 兜底交付（本 Goal 综合任务契约）：directive 要求 zip 但 Claude Code 只产出散文件时，
+    // 把全部交付候选文件（含已注册的——agent 上报路径注册的文件不经过 packed）打包为
+    // deliverable.zip（机械打包不改内容；已有 zip 产物则跳过）。
+    const wantZip = input.directive?.deliveryContract.kind === "zip";
+    if (wantZip && !(await listTaskArtifacts(input.taskId)).some((a) => a.type === "zip" && a.status === "ready")) {
+      const zipFiles: Array<{ name: string; buf: Buffer }> = [];
+      for (const output of candidates) {
+        if (output.isDir) continue;
+        const base = path.basename(output.relPath);
+        if (SYSTEM_ARTIFACT_FILES.has(base)) continue;
+        try {
+          const buf = artifactService.readContent(output.absPath) ?? (await import("node:fs")).readFileSync(output.absPath);
+          zipFiles.push({ name: base, buf });
+        } catch {}
+      }
+      if (zipFiles.length) {
+        try {
+          const JSZip = (await import("jszip")).default;
+          const zip = new JSZip();
+          for (const f of zipFiles) zip.file(f.name, f.buf);
+          const content = await zip.generateAsync({ type: "nodebuffer" });
+          const artifact = await registerTaskArtifact({
+            taskId: input.taskId,
+            userId: input.userId,
+            projectId: input.projectId ?? null,
+            filename: "deliverable.zip",
+            name: "deliverable",
+            kind: "zip",
+            mime: "application/zip",
+            content,
+          });
+          collected++;
+          await input.emit("artifact.created", { name: "deliverable.zip", downloadUrl: `/api/artifacts/${artifact.id}` });
+        } catch (e) { console.error("[zip-fallback] failed:", e); }
+      }
     }
     return collected;
   };

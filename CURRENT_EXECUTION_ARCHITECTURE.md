@@ -59,7 +59,7 @@ Display Layer（/tasks/:id、/artifacts/:id、/projects、/chat 消息流）
 | D5 | **专业模型与主模型分离** | MiniMax = Vision Specialist（仅经 vision-mcp 进入，不接管任务、不重启会话） |
 | D6 | **专业能力 = Claude Code 工具箱** | 现有 Presentation/Spreadsheet/DOCX/PDF/Browser/Vision/Search/Artifact/ZIP 全部保留，经 MCP/Tool 由 Claude Code 决定何时调用；Generator 解决物理格式，Claude Code 解决内容与决策 |
 | D7 | **Validation 归 Go AI** | Claude Code 声称完成不生效；契约/格式/视觉三重校验；失败证据回交当前上下文继续修 |
-| D8 | **AgentScope 退出主链** | 不再作为默认 Harness；代码保留为 legacy（`AGENTSCOPE_URL` 配置才可用），生产默认路径不经过 AgentScope Agent Loop |
+| D8 | **AgentScope 已退出** | 不再作为主 Harness；适配层与独立服务已删除（2026-08-17），生产路径唯一经过 Claude Code。历史设计见 `docs/V15_*`（SUPERSEDED） |
 | D9 | **控制面全部保留** | Task/Job/PG/Redis/Queue/Lease/Recovery/Cancel/Workspace/Project/Artifact/Preview/Provider Health/Quota/Failure taxonomy/Notification/Auth/Settings/Memory/Skills/Mobile UI 均不重建 |
 | D10 | **普通问答统一走 Claude Code** | /api/chat = 轻量 Claude Code Execution Profile（无持久沙盒、最小工具、通用模型），架构与任务系统同一条链 |
 | D11 | **Sandbox = Claude Code 的工作电脑** | go-ai-file-agent 容器：隔离、非 root、仅 workspace、真实 key 经 cc-auth-gateway 隔离、超时/取消/恢复由控制面承担 |
@@ -103,26 +103,30 @@ Display Layer（/tasks/:id、/artifacts/:id、/projects、/chat 消息流）
 | Validator 在哪里？ | `lib/tasks/completion.ts`（契约）+ `lib/artifacts/validator.ts`（格式）+ `lib/vision/verification.ts`（视觉对比） |
 | UI 在哪里显示？ | `app/tasks/[id]/page.tsx`（SSE 实时）、`app/artifacts/[id]/page.tsx`（预览）、`app/projects`、`components/job/JobCard.tsx`、`components/artifact/ArtifactCard.tsx` |
 
-## 模型地图（Auto 路由池）
+## 模型地图（Auto 路由池，2026-08-17 收敛）
 
 | 模型 | 角色 | 状态 |
 |---|---|---|
-| deepseek-v4-flash | Coding / Workspace / Agent 默认主模型 | ✅ 默认 |
-| deepseek-v4-pro | 复杂推理候补 | ✅ 候选 |
-| kimi-k3 / glm-5.2 / qwen3.8-max | 推理/通用候补（真实 Harness Benchmark 决定胜出者） | ⏸ 候选 |
-| minimax-m3 | **Vision Specialist**（仅经 vision-mcp） | ✅ Specialist |
-| gpt-5.6-luna | Provider 保留；健康+地区可用时才进候选 | ⏸ 门控 |
+| deepseek-v4-flash | Coding / Workspace / Chat 默认主模型（高频低成本） | ✅ 默认 |
+| deepseek-v4-pro | 高难推理主模型 / fallback | ✅ 候选 |
+| minimax-m3 | **Vision Specialist**（仅经 vision-mcp，绝不选为主模型） | ✅ Specialist |
+| kimi-k3 / qwen3.8-max / glm-5.2 | 已移出批准池（成本/策略；经 AGENT_MODEL/FEATURED_MODELS 显式配置可重新启用，capability-safe 校验仍在） | ❌ 池外 |
+| gpt-5.6-luna | Provider 保留；地区门控（region_unavailable 时不可选） | ⏸ 门控 |
 | grok-4.5 | 上游 503 | ❌ Disabled |
 
-## 删除/旁路清单（本 Goal 收敛后）
+主模型 Auto 链（DeepSeek 系内降级，不随机换供应商）：
+`agent: flash → pro`；`reasoning: pro → flash`；`chat: flash → pro`。
 
-- **删除（重复 Harness / 未接入死代码）**：
+## 删除/旁路清单（已执行，2026-08-17 验证）
+
+- **已删除（重复 Harness / 死代码）**：
   - `lib/sandbox/manager.ts` + `dockerProvider.ts` + `localProvider.ts`（Sandbox 生命周期全套，未接入生产）
-  - `lib/generators/engine.ts` 的**执行器用法**（engine 实现保留为 office-mcp 工具层）
-  - `lib/agent/jobStore.ts`（进程内 Job，与 `lib/tasks/job.ts` PG Job 重复）→ 由 runner 内联状态替代
+  - `lib/agentscope/*` + `lib/sandbox/agentscopeRuntime.ts`（AgentScope 2.0 适配层）+ `lib/sandbox/externalToolExecutor.ts`（仅 agentscope 用）
+  - `lib/agent/jobStore.ts`（进程内 Job 记录，PG jobs 表已是一等持久层）→ runner 事件流内联
   - `lib/workbench/*`（AgentScope 沙盒工作台平行链）→ 退役
-- **旁路（保留代码、退出主链）**：`lib/sandbox/agentscopeRuntime.ts` + `lib/agentscope/*`（legacy，`AGENTSCOPE_URL` 才可用）；`services/agent-runtime`（服务器容器停止）
+  - `scripts/agentscope-*`、`scripts/llm-mock-server.mjs`、`services/agent-runtime`（Python 服务，服务器容器已停）
 - **保留（控制面/产品层）**：worker/租约/恢复、job、repo、completion、artifacts、workspace、policy、vision、browser、generators 实现、preview、notify、metrics、auth、personalization、skills、memory、toolRegistry（前端）等
+- `lib/agent/loop.ts`（AgentLoop 状态机：validation_failed→repair 的事件推进，非模型决策）保留为事件状态机
 
 ## 验证矩阵（真实验收）
 
