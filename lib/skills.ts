@@ -3,7 +3,13 @@
  * Routes a chat request to a "skill" that appends a focused system instruction
  * BEFORE the request reaches the model. No LLM calls, no vector DB, no agents.
  * Normal chat returns "" (zero intervention / zero token overhead).
+ *
+ * 解释/分析/知识类：在现有指令之上叠加 Go AI 统一内容标准
+ * （lib/content-standard：structure-standard.md + 关系修辞表达生成器.md 的合成版，
+ *   按任务复杂度裁剪；短答只加护栏不膨胀）。标准在模型生成之前进入，不是事后润色。
  */
+
+import { contentStandardText, detectContentComplexity } from "./content-standard";
 
 export type Skill = "" | "academic" | "technical" | "analysis";
 
@@ -79,9 +85,14 @@ const ANALYSIS_INSTRUCTION = [
   "- Markdown 层级清楚；不需要输出隐藏的思考过程。",
 ].join("\n");
 
-export function skillInstruction(skill: Skill): string {
-  if (skill === "academic") return ACADEMIC_INSTRUCTION;
+export function skillInstruction(skill: Skill, lastUserText?: string): string {
+  if (skill === "academic") {
+    const complexity = detectContentComplexity(lastUserText || "");
+    return [ACADEMIC_INSTRUCTION, contentStandardText(complexity === "deep" ? "deep" : "normal")].join("\n\n");
+  }
+  if (skill === "analysis") {
+    return [ANALYSIS_INSTRUCTION, contentStandardText("deep")].join("\n\n");
+  }
   if (skill === "technical") return TECHNICAL_INSTRUCTION;
-  if (skill === "analysis") return ANALYSIS_INSTRUCTION;
   return "";
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import TopNav from "../../components/TopNav";
+import AppShell from "../../components/AppShell";
 import PersonalizationPanel from "../../components/personalization/Panel";
 import { defaultProfile, loadProfile, saveProfile, type PersonalizationProfile } from "../../lib/personalization";
 
@@ -70,7 +70,7 @@ export default function SettingsPage() {
 
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="设置" backTo="/" />
       <section className="settings-page">
         <header className="tasks-header">
           <div>

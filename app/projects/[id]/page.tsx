@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import TopNav from "../../../components/TopNav";
+import AppShell from "../../../components/AppShell";
 import { readableBytes } from "../../tasks/status-meta";
 
 type ProjectArtifact = { id: string; name: string; type: string; version: number; size: number; createdAt: string; downloadUrl: string };
@@ -35,7 +35,7 @@ export default function ProjectDetailPage() {
   if (error) {
     return (
       <main className="home-shell">
-        <TopNav />
+        <AppShell title="项目" backTo="/projects" />
         <section className="tasks-section">
           <div className="workbench-alert"><span>{error}</span><a href="/projects" className="quiet-link">← 返回项目列表</a></div>
         </section>
@@ -53,7 +53,7 @@ export default function ProjectDetailPage() {
 
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="项目" backTo="/projects" />
       <section className="tasks-section">
         {!detail ? (
           <p className="empty-copy">加载中…</p>
@@ -81,7 +81,7 @@ export default function ProjectDetailPage() {
                       <small>共 {versions.length} 个版本 · {readableBytes(versions[versions.length - 1].size)}</small>
                       <div className="version-row">
                         {versions.map((v) => (
-                          <a key={v.id} href={`/artifacts/${v.id}`} className="version-chip" title={`${v.type} v${v.version} · ${new Date(v.createdAt).toLocaleString("zh-CN")}`}>
+                          <a key={v.id} href={`/artifacts/${v.id}/viewer`} className="version-chip" title={`${v.type} v${v.version} · ${new Date(v.createdAt).toLocaleString("zh-CN")}`}>
                             v{v.version}
                           </a>
                         ))}

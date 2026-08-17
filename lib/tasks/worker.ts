@@ -31,6 +31,7 @@ import { listProjectMemory, listUserMemory } from "./memory";
 import { listTaskArtifacts } from "./artifacts";
 import { validateTaskCompletion } from "./completion";
 import { listEnabledSkillsText } from "./skills";
+import { standardForTask } from "../content-standard";
 import { buildInputManifest } from "./inputManifest";
 import { recordTaskMetrics } from "./metrics";
 import { createJob, heartbeatJob, updateJobStatus, writeJobCheckpoint, claimExpiredJob, type JobCheckpoint } from "./job";
@@ -506,11 +507,14 @@ async function buildPlanContext(task: TaskRow) {
     projectMemory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
     projectArtifacts,
   ].filter(Boolean).join("\n\n");
+  // 统一内容标准：任务输出的用户可见内容（解释/分析/比较/推荐/文档）在生成前按标准组织。
+  // 按目标复杂度裁剪（短任务只加护栏）；代码/JSON/日志类原生结构不被套用（标准内已声明不适用域）。
+  const contentStandard = standardForTask(String(task.goal || ""), String(task.type || ""));
   return {
     files: files.map((file, i) => ({ filename: String(file.filename), summary: manifest[i]?.summary })),
     projectContext,
     userMemory: memory.map((m) => `[${m.category}] ${m.content}`).join("\n"),
-    skills
+    skills: [skills, contentStandard].filter(Boolean).join("\n\n")
   };
 }
 

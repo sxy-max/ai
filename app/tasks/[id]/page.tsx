@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { STATUS_META, WORKER_LABELS, STEP_STATUS_LABELS, readableBytes, eventLabel, AGENT_STAGE_LABELS, STEP_PHASE_LABELS } from "../status-meta";
-import TopNav from "../../../components/TopNav";
+import AppShell from "../../../components/AppShell";
+import RichContent from "../../../components/rich/RichContent";
 
 type TaskDetail = {
   task: {
@@ -30,7 +31,8 @@ export default function TaskDetailPage() {
   const router = useRouter();
   const id = params.id;
   const [detail, setDetail] = useState<TaskDetail | null>(null);
-  const [tab, setTab] = useState("activity");
+  // 结果优先：默认打开「结果」（desktop 双 pane 布局不受影响，两栏始终同显）
+  const [tab, setTab] = useState("result");
   const [error, setError] = useState("");
   const [needsLogin, setNeedsLogin] = useState(false);
   const [busyAction, setBusyAction] = useState("");
@@ -119,7 +121,7 @@ export default function TaskDetailPage() {
   if (!detail) {
     return (
       <main className="home-shell">
-        <TopNav />
+        <AppShell title="任务详情" backTo="/tasks" />
         <section className="tasks-section"><p className="empty-copy">{error || "加载中…"}</p></section>
       </main>
     );
@@ -133,9 +135,15 @@ export default function TaskDetailPage() {
   const canCancel = ["queued", "planning", "running", "waiting_user", "paused"].includes(task.status);
   const canRetry = task.status === "failed" || task.status === "cancelled";
 
+  // 「继续处理」：回到首页 Composer 预填，延续当前 Task/Artifact lineage（沿用现有 parentTaskId，不发明新系统）
+  function continueTask() {
+    const goal = `继续处理任务「${task.title}」：${task.goal.slice(0, 120)}。请基于已有结果继续，输出更新后的文件。`;
+    router.push(`/?goal=${encodeURIComponent(goal)}&parent=${encodeURIComponent(task.id)}`);
+  }
+
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="任务详情" backTo="/tasks" />
 
       <section className="task-detail">
         <header className="task-detail-header">
@@ -171,8 +179,10 @@ export default function TaskDetailPage() {
           </div>
         )}
 
+        {/* Desktop：双 pane 常显（标签仅视觉）；Mobile：用户概念三段（结果/过程/文件），raw 折叠到高级信息 */}
         <div className="task-detail-tabs">
-          <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>活动</button>
+          <button className={tab === "result" ? "active" : ""} onClick={() => setTab("result")}>结果</button>
+          <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>过程</button>
           <button className={tab === "steps" ? "active" : ""} onClick={() => setTab("steps")}>步骤</button>
           {/* V1.3 WP32：文件区（上传文件独立展示，脱离 Chat bubble） */}
           <button className={tab === "files" ? "active" : ""} onClick={() => setTab("files")}>文件 <b>{files.length}</b></button>
@@ -181,8 +191,39 @@ export default function TaskDetailPage() {
         </div>
 
         <div className="task-detail-body">
-          <section className={`detail-pane ${tab === "activity" || tab === "steps" || tab === "files" ? "shown" : ""}`}>
-            {tab === "activity" ? (
+          {/* 结果段（Mobile 主视图；desktop 双 pane 常显，此段仅窄屏显示） */}
+          <section className={`detail-pane side result-pane-card ${tab === "result" ? "shown" : ""}`}>
+            <div className="result-pane">
+              <h3 className="result-pane-head">结果</h3>
+              {task.result_summary ? (
+                <RichContent content={task.result_summary} rawToggle copyButton />
+              ) : task.status === "completed" ? (
+                <p className="empty-copy">任务已完成，没有文本结果。</p>
+              ) : (
+                <p className="empty-copy">任务还在进行中，完成后这里显示最终答案。</p>
+              )}
+
+              {artifacts.length > 0 && (
+                <>
+                  <h3 className="result-pane-head">产物</h3>
+                  <div className="artifact-grid">
+                    {artifacts.map((artifact) => (
+                      <a key={artifact.id} href={`/artifacts/${artifact.id}/viewer`} className="artifact-card">
+                        <div className="artifact-icon">{artifact.type.slice(0, 3).toUpperCase()}</div>
+                        <div><strong>{artifact.name}</strong><small>v{artifact.version} · {readableBytes(artifact.size)} · {artifact.type}</small></div>
+                        <span>打开 →</span>
+                      </a>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <button className="continue-btn" onClick={continueTask}>↻ 继续处理这个任务</button>
+            </div>
+          </section>
+
+          <section className={`detail-pane ${tab === "activity" || tab === "steps" || tab === "files" || tab === "process" || tab === "result" ? "shown" : ""}`}>
+            {tab === "activity" || tab === "process" || tab === "result" ? (
               <div className="run-timeline">
                 {!allEvents.length && <div className="empty-run"><span>01</span><h3>等待执行</h3><p>任务入队后，系统会在这里实时展示每一步进展。</p></div>}
                 {allEvents.map((event) => (
@@ -194,6 +235,16 @@ export default function TaskDetailPage() {
                     </div>
                   </article>
                 ))}
+                {/* Mobile：raw technical trace 折叠到高级信息 */}
+                <details className="raw-trace">
+                  <summary>高级信息（内部事件）</summary>
+                  <div>
+                    {allEvents.map((event) => (
+                      <p key={event.id} className="raw-trace-line">{event.type} {JSON.stringify(event.payload)}</p>
+                    ))}
+                    {!allEvents.length && <p className="raw-trace-line">暂无事件</p>}
+                  </div>
+                </details>
               </div>
             ) : tab === "files" ? (
               <div className="files-list">
@@ -223,22 +274,22 @@ export default function TaskDetailPage() {
             )}
           </section>
 
-          <section className={`detail-pane side ${tab === "artifacts" || tab === "detail" ? "shown" : ""}`}>
+          <section className={`detail-pane side ${tab === "artifacts" || tab === "detail" || tab === "result" ? "shown" : ""}`}>
             {tab === "artifacts" ? (
               <div className="artifact-grid">
                 {!artifacts.length && <p className="empty-copy">任务完成后，这里展示可下载的文件。</p>}
                 {artifacts.map((artifact) => (
-                  <a key={artifact.id} href={`/artifacts/${artifact.id}`} className="artifact-card">
+                  <a key={artifact.id} href={`/artifacts/${artifact.id}/viewer`} className="artifact-card">
                     <div className="artifact-icon">{artifact.type.slice(0, 3).toUpperCase()}</div>
                     <div><strong>{artifact.name}</strong><small>v{artifact.version} · {readableBytes(artifact.size)} · {artifact.type}</small></div>
-                    <span>预览 →</span>
+                    <span>打开 →</span>
                   </a>
                 ))}
               </div>
             ) : (
               <div className="detail-notes">
+                {task.result_summary && <><h3>结果摘要</h3><RichContent content={task.result_summary} /></>}
                 <h3>目标</h3><p>{task.goal}</p>
-                {task.result_summary && <><h3>结果摘要</h3><p>{task.result_summary}</p></>}
                 <h3>规划（{Array.isArray(task.plan) ? task.plan.length : 0} 步）</h3>
                 {Array.isArray(task.plan) && task.plan.map((step, index) => (
                   <p key={index} className="plan-line">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import TopNav from "../../components/TopNav";
+import AppShell from "../../components/AppShell";
 import MessageParts from "../../components/message/MessageParts";
 import PersonalizationPanel from "../../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, streamingStatus, sanitizeForUpstream } from "../../lib/message/lifecycle";
@@ -269,6 +269,18 @@ export default function Home() {
     setProfile(loadProfile());
     setStorageReady(true);
     void authenticate(true);
+  }, []);
+
+  // Mobile：键盘弹出（visualViewport 收缩）时压缩 app-shell 高度，Composer 不被浏览器 UI/safe-area 长期遮挡
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      const shell = document.querySelector(".app-shell") as HTMLElement | null;
+      if (shell) shell.style.height = `${Math.max(200, vv.height)}px`;
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
   }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, searchBusy]);
@@ -654,7 +666,7 @@ export default function Home() {
   if (!authed) return <main className="login-shell"><section className="login-card"><p className="auth-hint">正在验证登录状态…</p></section></main>;
 
   return <main className="app-shell">
-      <TopNav />
+      <AppShell title="聊天" backTo="/" noTopBar />
     <aside className={`sidebar ${sidebar ? "open" : ""}`}><div className="side-head"><strong>Go AI</strong><button onClick={() => setSidebar(false)}>×</button></div><button className="new-chat" onClick={newChat}>＋ 新对话</button><div className="history">{conversations.map((c) => <button key={c.id} className={c.id === currentId ? "active" : ""} onClick={() => openChat(c)}><span>{c.title}</span><small>{c.model ? prettyModel(c.model) : "未选模型"}</small></button>)}</div><div className="side-foot"><button className={`side-nav ${view === "personalization" ? "active" : ""}`} onClick={() => { setSidebar(false); setView("personalization"); }}><span>🧭</span>个性化</button><button className={`side-nav ${view === "settings" ? "active" : ""}`} onClick={() => { setSidebar(false); setView("settings"); }}><span>⚙</span>设置</button></div></aside>
     {sidebar && <div className="scrim" onClick={() => setSidebar(false)} />}
 

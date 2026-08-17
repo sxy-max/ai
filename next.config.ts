@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   output: "standalone",
+  // E2E dev server 用独立 dist 目录：避免与本地 dev（3000）争用 .next 锁（NEXT_E2E=1）
+  distDir: process.env.NEXT_E2E === "1" ? ".next-e2e" : ".next",
   // 原生/浏览器依赖保持运行时 require：@napi-rs/canvas（.node 资产）、pdfjs-dist
   // （fake-worker 相对路径）、@playwright/test（PDF 渲染/Browser Runtime 的 chromium）
   serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist", "@playwright/test"],

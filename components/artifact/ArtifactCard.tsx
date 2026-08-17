@@ -13,7 +13,12 @@ export type ClientArtifactCard = {
   status?: string;
 };
 
-/** 按 kind 路由预览：html 内联 iframe / image 缩略图 / 其余下载卡；pending 显示生成中。 */
+/**
+ * Artifact Card：点击 = 打开结果（默认进入 Dedicated Viewer，不是文件详情）。
+ * - html：卡片内含小预览（即时可看），标题/全屏按钮 → Full-Viewport Viewer
+ * - image / markdown / 其他：整卡可点击 → Viewer（渲染或预览）
+ * - 下载保留为卡内次按钮，不抢「打开结果」的视觉权重
+ */
 export default function ArtifactCard({ a }: { a: ClientArtifactCard }) {
   if (a.status === "pending") return <PendingCard name={a.name} />;
   const display = artifactDisplayKind(a.name, a.mime);
@@ -21,6 +26,8 @@ export default function ArtifactCard({ a }: { a: ClientArtifactCard }) {
   if (display === "image") return <ImageCard a={a} />;
   return <FileCard a={a} />;
 }
+
+const viewerHref = (a: ClientArtifactCard) => `/artifacts/${encodeURIComponent(a.id)}/viewer`;
 
 function PendingCard({ name }: { name: string }) {
   return (
@@ -48,7 +55,10 @@ function HtmlPreview({ a }: { a: ClientArtifactCard }) {
   if (failed) return <FileCard a={a} />;
   return (
     <div className="artifact-card artifact-html" data-testid="artifact-card">
-      <div className="artifact-name">{a.name}</div>
+      <div className="artifact-html-head">
+        <a href={viewerHref(a)} className="artifact-name" title="打开网页预览">{a.name}</a>
+        <a href={viewerHref(a)} className="artifact-fullscreen">⛶ 全屏</a>
+      </div>
       {url ? (
         <iframe className="artifact-html-frame" sandbox="" src={url} title={a.name} />
       ) : (
@@ -60,17 +70,22 @@ function HtmlPreview({ a }: { a: ClientArtifactCard }) {
 
 function ImageCard({ a }: { a: ClientArtifactCard }) {
   return (
-    <div className="artifact-card artifact-image" data-testid="artifact-card">
+    <a className="artifact-card artifact-image" href={viewerHref(a)} data-testid="artifact-card" title="打开查看">
       <img className="artifact-thumb" src={a.downloadUrl} alt={a.name} loading="lazy" />
-      <div className="artifact-name">{a.name}</div>
-    </div>
+      <div className="artifact-body">
+        <div className="artifact-name">{a.name}</div>
+        <div className="artifact-meta">打开查看 →</div>
+      </div>
+    </a>
   );
 }
 
 function FileCard({ a }: { a: ClientArtifactCard }) {
   const [expired, setExpired] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const download = async () => {
+  const download = async (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (downloading || expired) return;
     setDownloading(true);
     try {
@@ -92,15 +107,15 @@ function FileCard({ a }: { a: ClientArtifactCard }) {
     }
   };
   return (
-    <div className="artifact-card" data-testid="artifact-card">
+    <a className="artifact-card" href={viewerHref(a)} data-testid="artifact-card" title="打开查看">
       <div className="artifact-icon">📄</div>
       <div className="artifact-body">
         <div className="artifact-name">{a.name}</div>
-        <div className="artifact-meta">{(a.mime.split("/")[1] || a.mime).toUpperCase()} · {fmtSize(a.size)}</div>
+        <div className="artifact-meta">{(a.mime.split("/")[1] || a.mime).toUpperCase()} · {fmtSize(a.size)} · 打开 →</div>
       </div>
       {expired
         ? <span className="artifact-expired">文件已过期</span>
         : <button className="artifact-dl" onClick={download} disabled={downloading}>{downloading ? "下载中…" : "下载"}</button>}
-    </div>
+    </a>
   );
 }

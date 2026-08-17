@@ -10,3 +10,4 @@ test-results
 playwright-report
 .data/
 tsconfig.tsbuildinfo
+.next-e2e

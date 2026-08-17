@@ -1,0 +1,26 @@
+[
+  {
+    "vp": "narrow-375",
+    "metrics": {
+      "homeOverflow": 0,
+      "homeComposerY": 128,
+      "htmlFrameArea": 93
+    }
+  },
+  {
+    "vp": "standard-430",
+    "metrics": {
+      "homeOverflow": 0,
+      "homeComposerY": 142,
+      "htmlFrameArea": 95
+    }
+  },
+  {
+    "vp": "desktop-1280",
+    "metrics": {
+      "homeOverflow": 0,
+      "homeComposerY": 191,
+      "htmlFrameArea": 94
+    }
+  }
+]

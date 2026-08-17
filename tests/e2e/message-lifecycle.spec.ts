@@ -172,9 +172,10 @@ test("TEST13 移动端布局", async ({ page }) => {
   await expect(page.locator('[data-testid="chat-input"]')).toBeVisible({ timeout: 20_000 });
   // 移动端侧栏默认收起（fixed 移出视口）
   await expect(page.locator(".sidebar")).not.toBeInViewport();
-  // 打开侧栏 → 进设置
+  // 打开侧栏 → 进设置（等待滑入动画稳定，避免 click 命中动画中的元素）
   await page.locator("header .icon-btn").first().click();
   await expect(page.locator(".sidebar")).toHaveClass(/open/);
+  await page.waitForTimeout(400);
   await page.locator(".side-nav").filter({ hasText: "设置" }).click();
   await expect(page.locator(".settings-view")).toBeVisible();
   // 返回聊天并发消息

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { STATUS_META } from "./status-meta";
-import TopNav from "../../components/TopNav";
+import AppShell from "../../components/AppShell";
 
 type TaskItem = {
   id: string;
@@ -53,7 +53,7 @@ export default function TasksPage() {
 
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="任务" backTo="/" />
 
       <section className="tasks-section">
         <header className="tasks-header">
@@ -101,7 +101,8 @@ export default function TasksPage() {
                   </div>
                   <div className="task-card-meta">
                     <span>{task.current_stage || "等待执行"}</span>
-                    <span>{total ? `步骤 ${done}/${total}` : ""}{task.artifact_count ? ` · 产物 ${task.artifact_count}` : ""}</span>
+                    <span className="task-meta-progress">{total ? `步骤 ${done}/${total}` : ""}</span>
+                    {task.artifact_count ? <span className="task-meta-artifacts">{task.artifact_count} 个产物</span> : null}
                   </div>
                   {task.status === "failed" && task.error && <p className="task-card-error">{task.error}</p>}
                 </a>

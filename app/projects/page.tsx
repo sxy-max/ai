@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import TopNav from "../../components/TopNav";
+import AppShell from "../../components/AppShell";
 
 type ProjectItem = {
   id: string; name: string; description: string; taskCount: number; artifactCount: number; updatedAt: string;
@@ -45,7 +45,7 @@ export default function ProjectsPage() {
 
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="项目" backTo="/" />
       <section className="tasks-section">
         <header className="tasks-header">
           <div>

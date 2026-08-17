@@ -53,6 +53,12 @@ function textWithAttachments(message: ClientMessage) {
   return blocks.join("");
 }
 
+/** 最近一条用户消息文本（内容标准复杂度检测输入）。 */
+function lastUserTextOf(messages: ClientMessage[]): string {
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  return last ? textWithAttachments(last).slice(0, 3000) : "";
+}
+
 function appendContext(messages: ClientMessage[], webContext?: string, urlContext?: string) {
   if (!webContext && !urlContext) return messages;
   const copy = messages.map((message) => ({ ...message, attachments: message.attachments ? [...message.attachments] : undefined }));
@@ -462,7 +468,11 @@ function mockStream(model: string): Response {
 async function claudeCodeChat(body: Body): Promise<Response> {
   const agentUrl = process.env.AGENT_URL || "http://go-ai-file-agent:18082";
   const lastUser = [...body.messages].reverse().find((m) => m.role === "user");
-  const prompt = (lastUser?.content || "").slice(0, 6000);
+  const userText = lastUser?.content || "";
+  // 统一内容标准：解释/分析/知识类在 Claude Code 生成之前进入（不事后润色）。
+  // 指令放在用户要求之前，避免长输入截断把标准切掉；纯代码/JSON/日志类问题不注入（detectSkill 不命中）。
+  const skillText = skillInstruction(detectSkill(body.messages), lastUserTextOf(body.messages));
+  const prompt = [skillText ? `[写作标准]\n${skillText}\n\n用户要求如下：` : "", userText].filter(Boolean).join("").slice(0, 6000);
   // Preflight Auto：主模型 + 按需 MCP（视觉问答挂 vision；研究挂 search）
   let directive: { mainModel?: string; mcpServers?: string[] } | undefined;
   try {
@@ -572,7 +582,7 @@ export async function POST(request: Request) {
   }
   const protocol = protocolForModel(body.model, body.provider);
   if (!protocol) return errorResponse(`Unknown protocol route for model: ${body.model}`, 400);
-  const skillText = skillInstruction(detectSkill(body.messages));
+  const skillText = skillInstruction(detectSkill(body.messages), lastUserTextOf(body.messages));
   const personalizationText = [personalizationSystemText({ memory: body.personalization?.memory || "", style: body.personalization?.style || "" }), skillsSystemText(body.skills || [])].filter(Boolean).join("\n\n");
   const key = body.provider === "anthropic" ? process.env.ANTHROPIC_API_KEY : process.env.OPENCODE_GO_API_KEY;
   if (!key) return errorResponse(body.provider === "anthropic" ? "Anthropic is not configured" : "OpenCode Go is not configured", 503);

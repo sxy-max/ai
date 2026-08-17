@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { readableBytes } from "../../tasks/status-meta";
-import TopNav from "../../../components/TopNav";
+import AppShell from "../../../components/AppShell";
+import RichContent from "../../../components/rich/RichContent";
 
 type ArtifactMeta = {
   id: string;
@@ -83,15 +84,17 @@ export default function ArtifactPreviewPage() {
   if (!meta && !error) {
     return (
       <main className="home-shell">
-        <TopNav />
+        <AppShell title="产物信息" />
         <section className="tasks-section"><p className="empty-copy">加载中…</p></section>
       </main>
     );
   }
 
+  const canOpen = meta && ["html", "markdown", "text", "image", "csv", "json", "code"].includes(meta.kind);
+
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="产物信息" />
       <section className="artifact-preview">
         {error ? (
           <div className="workbench-alert"><span>{error}</span></div>
@@ -104,7 +107,8 @@ export default function ArtifactPreviewPage() {
               </div>
               <div className="artifact-actions">
                 {meta!.taskId && <a href={`/tasks/${meta!.taskId}`} className="quiet-link">← 所属任务</a>}
-                <a href={meta!.downloadUrl} className="new-task-btn">下载 ↓</a>
+                {canOpen && <a href={`/artifacts/${meta!.id}/viewer`} className="new-task-btn">打开结果 →</a>}
+                <a href={meta!.downloadUrl} className="quiet-link">下载 ↓</a>
               </div>
             </header>
             {preview ? (
@@ -120,9 +124,15 @@ export default function ArtifactPreviewPage() {
                 <div className="artifact-binary-note">该类型暂无法生成预览，请下载后查看。</div>
               )
             ) : content !== null ? (
-              meta!.kind === "html"
-                ? <iframe className="artifact-frame" srcDoc={content} sandbox="" title="产物预览" />
-                : <pre className="artifact-pre">{content}</pre>
+              meta!.kind === "html" ? (
+                <iframe className="artifact-frame" srcDoc={content} sandbox="" title="产物预览" />
+              ) : meta!.kind === "markdown" || meta!.kind === "text" ? (
+                <div className="artifact-rich">
+                  <RichContent content={content} rawToggle copyButton />
+                </div>
+              ) : (
+                <pre className="artifact-pre">{content}</pre>
+              )
             ) : (
               <div className="artifact-binary-note">该类型不支持内联预览，请下载后查看。</div>
             )}

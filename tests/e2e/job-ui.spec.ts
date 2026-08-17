@@ -21,8 +21,9 @@ test("TEST16 文件任务：创建 → 跳转任务详情页（状态/事件流/
   await expect(page.locator("body")).toContainText("排队中", { timeout: 15_000 });
   await expect(page.locator("body")).toContainText("task · created");
   await expect(page.locator("body")).toContainText("任务已创建");
-  await expect(page.locator("body")).toContainText("活动");
-  await expect(page.locator("body")).toContainText("步骤");
+  // 结果优先：默认打开「结果」面板；「过程」= 用户可理解的执行阶段
+  await expect(page.locator("body")).toContainText("结果");
+  await expect(page.locator("body")).toContainText("过程");
   // queued 任务可取消
   await expect(page.getByRole("button", { name: "取消" })).toBeVisible();
   // 页面未崩溃（error boundary 不出现）

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import TopNav from "../../components/TopNav";
+import AppShell from "../../components/AppShell";
 import { readableBytes } from "../tasks/status-meta";
 
 type FileItem = {
@@ -38,7 +38,7 @@ export default function FilesPage() {
 
   return (
     <main className="home-shell">
-      <TopNav />
+      <AppShell title="文件" backTo="/" />
       <section className="tasks-section">
         <header className="tasks-header">
           <div>

@@ -1,8 +1,9 @@
 // 预热 Next dev 编译，避免 Turbopack 对并行首次编译返回 403/挂起。
 // 生产(next start/Docker)不受影响；这是 dev 基础设施的已知竞态。
 export default async function globalSetup() {
-  const base = "http://127.0.0.1:3000";
-  const paths = ["/", "/api/auth", "/api/models"];
+  const base = "http://127.0.0.1:3100";
+  // 预热核心页面（/chat 冷编译超过测试 timeout 会拖挂整个 spec 文件）
+  const paths = ["/", "/chat", "/api/auth", "/api/models"];
   for (const path of paths) {
     try {
       await fetch(base + path, { method: path === "/api/auth" ? "POST" : "GET" });
