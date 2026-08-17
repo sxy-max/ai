@@ -315,7 +315,9 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
         conversationId,
         jobId,
         prompt,
-        maxTurns: 15,
+        // 本 Goal：turns 按执行档位——综合/长任务（heavy/workspace）给足预算，
+        // 避免复杂任务在交付阶段因 max-turns 用尽 exit 1
+        maxTurns: input.directive?.profile === "heavy" ? 40 : input.directive?.profile === "quick" ? 15 : 25,
         model: policy?.executorModel || input.directive?.mainModel || undefined,
         visionMd: vision.visionMd,
         fileManifest: true,
