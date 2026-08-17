@@ -133,3 +133,22 @@ test("4. artifacts 逃逸路径（../）不登记；缺失文件跳过", async (
   assert.equal(outcome.artifactCount, 0);
   assert.deepEqual(registered, []);
 });
+
+test("5. Cancel 信号透传：request.signal 与输入一致（取消真终止回归，2026-08-17）", async () => {
+  const { ws } = makeWs();
+  let gotSignal: AbortSignal | undefined;
+  const controller = new AbortController();
+  const adapter = fakeAdapter({
+    onRequest: (request) => { gotSignal = request.signal; },
+    result: { ok: true, exitCode: 0 },
+  });
+  const outcome = await runAgentJob(
+    { conversationId: "c", jobId: "job5", prompt: "x", workspace: ws, adapter, signal: controller.signal, registerArtifact: async () => null },
+    () => {}
+  );
+  assert.equal(outcome.status, "done");
+  assert.ok(gotSignal, "request.signal 必须透传（Cancel 才能中断容器执行）");
+  assert.equal(gotSignal!.aborted, false);
+  controller.abort();
+  assert.equal(gotSignal!.aborted, true, "abort 后信号应同步");
+});

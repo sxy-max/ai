@@ -191,6 +191,16 @@ async function runClaude(payload, res) {
       }
     }, payload.timeoutMs || CLAUDE_TIMEOUT_MS);
 
+    // 客户端断连（worker 取消/超时）→ 立即终止 claude（2026-08-17 修复：
+    // 此前无断连处理，Cancel 后 claude 幽灵执行到超时，浪费额度且锁住容器）
+    res.on("close", () => {
+      if (!exited) {
+        log("client disconnected, killing claude");
+        clearTimeout(timer);
+        child.kill("SIGKILL");
+      }
+    });
+
     const onExit = (code) => {
       if (exited) return;
       exited = true;
@@ -294,6 +304,13 @@ async function runChat(payload, res) {
     const child = spawn("claude", args, { env, stdio: ["ignore", "pipe", "pipe"], cwd: "/tmp" });
     let exited = false;
     const timer = setTimeout(() => { if (!exited) child.kill("SIGKILL"); }, payload.timeoutMs || 3 * 60 * 1000);
+    // 客户端断连（取消/超时）→ 终止 claude（同 /task 修复）
+    res.on("close", () => {
+      if (!exited) {
+        clearTimeout(timer);
+        child.kill("SIGKILL");
+      }
+    });
     child.on("exit", (code) => {
       if (exited) return;
       exited = true;

@@ -34,6 +34,8 @@ export type RunAgentJobInput = {
   repair?: SandboxRunRequest["repair"];
   /** 续接上一会话（同 workspace 多轮）。 */
   continueSession?: boolean;
+  /** 外部取消信号（任务 cancel 时中断容器执行；2026-08-17 补：此前未透传，Cancel 只改状态不终止 claude）。 */
+  signal?: AbortSignal;
   workspace: WorkspaceManager;
   adapter: AgentRuntimeAdapter;
   /** 把 workspace 内文件登记进 Artifact Service；返回 null 表示跳过。 */
@@ -95,6 +97,8 @@ export async function runAgentJob(input: RunAgentJobInput, onEvent?: (event: Job
     skills: input.skills,
     visionMd: input.visionMd,
     timeoutMs,
+    // Cancel 真终止：任务取消信号透传 adapter → fetch abort → 容器执行中断
+    signal: input.signal,
     directive: input.directive,
     repair: input.repair,
     continueSession: input.continueSession,

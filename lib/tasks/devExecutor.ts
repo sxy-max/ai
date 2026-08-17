@@ -337,6 +337,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           : undefined,
         repair,
         continueSession: attempt > 0, // repair 轮续接同一会话/工作区，不重开空任务
+        signal: input.signal, // Cancel 真终止（2026-08-17 修复：此前信号未透传，取消只改状态不中断执行）
         workspace: ws,
         adapter,
         registerArtifact: async (name: string, content: Buffer) => {
