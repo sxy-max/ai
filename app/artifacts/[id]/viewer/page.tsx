@@ -30,6 +30,8 @@ type ArtifactMeta = {
 const TEXT_KINDS = new Set(["markdown", "text", "csv", "json", "code"]);
 // 走 Preview API（V1.4 WP17-18）：table/文本/png 页/文件树/页数元数据
 const PREVIEW_KINDS = new Set(["xlsx", "docx", "pdf", "zip", "pptx"]);
+// 允许结果网页自身的交互，但不允许它获得与 Go AI 相同的 origin。
+const HTML_VIEWER_SANDBOX = "allow-scripts allow-forms allow-popups";
 
 /** iframe srcDoc 骨架：预览 HTML（table/tree/img）带最小内联样式，保持沙箱。 */
 function frameHtml(inner: string): string {
@@ -66,12 +68,17 @@ export default function ArtifactViewerPage() {
       setMeta(data);
 
       if (data.kind === "html") {
-        // HTML：blob URL 交给 iframe（全视口；sandbox="" 隔离保持）
+        // HTML：blob URL 交给 iframe（全视口；opaque-origin sandbox 保持）
         try {
           const binary = await fetch(data.downloadUrl, { cache: "no-store" });
           if (binary.ok) {
-            const blob = await binary.blob();
-            if (!cancelled) setBlobUrl(URL.createObjectURL(blob));
+            // Artifact HTML is UTF-8. The explicit charset protects pages that omit a
+            // meta charset from the browser's legacy Windows-1252 fallback in blob URLs.
+            const text = await binary.text();
+            const blob = new Blob([text], { type: "text/html;charset=utf-8" });
+            const objectUrl = URL.createObjectURL(blob);
+            if (!cancelled) setBlobUrl(objectUrl);
+            else URL.revokeObjectURL(objectUrl);
           }
         } catch {}
       } else if (data.kind === "image" || data.mime?.startsWith("image/")) {
@@ -116,6 +123,12 @@ export default function ArtifactViewerPage() {
     })().catch(() => { if (!cancelled) setError("加载失败"); });
     return () => { cancelled = true; };
   }, [params.id, router]);
+
+  useEffect(() => {
+    return () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [blobUrl]);
 
   const back = () => {
     if (window.history.length > 1) window.history.back();
@@ -183,7 +196,7 @@ export default function ArtifactViewerPage() {
             <iframe
               className="viewer-iframe"
               src={blobUrl}
-              sandbox=""
+              sandbox={HTML_VIEWER_SANDBOX}
               title={meta.filename}
             />
           ) : (

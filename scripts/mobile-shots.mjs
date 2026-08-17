@@ -6,7 +6,7 @@ import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 
-const BASE = "http://127.0.0.1:3100";
+const BASE = process.env.MOBILE_SHOTS_BASE || "http://127.0.0.1:3100";
 const OUT = "docs/mobile-acceptance";
 const VIEWPORTS = [
   { name: "narrow-375", width: 375, height: 667, isMobile: true, hasTouch: true },
@@ -71,7 +71,10 @@ const MD_ARTIFACT = `# 电路板、PCB、PCB 打样与嵌入式的关系
 
 async function waitReady() {
   for (let i = 0; i < 60; i++) {
-    try { const r = await fetch(BASE + "/api/auth/me", { cache: "no-store" }); if (r.ok || r.status === 401) return true; } catch {}
+    try {
+      const r = await fetch(BASE + "/api/auth/me", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+      if (r.ok || r.status === 401) return true;
+    } catch {}
     await new Promise((r) => setTimeout(r, 2000));
   }
   throw new Error("dev server 未就绪: " + BASE);
@@ -80,7 +83,7 @@ async function waitReady() {
 async function createArtifact(body) {
   const r = await fetch(BASE + "/api/artifacts/create", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders },
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -92,27 +95,50 @@ async function createArtifact(body) {
 async function createTask(goal) {
   const form = new FormData();
   form.append("goal", goal);
-  const r = await fetch(BASE + "/api/tasks", { method: "POST", body: form, cache: "no-store" });
+  const r = await fetch(BASE + "/api/tasks", { method: "POST", headers: authHeaders, body: form, cache: "no-store" });
   const j = await r.json();
   if (!r.ok) throw new Error("task create failed: " + JSON.stringify(j));
   return j.task.id;
 }
 
+/** Production screenshots authenticate through the ordinary access route. E2E dev mode returns an empty header. */
+async function authenticate() {
+  const current = await fetch(BASE + "/api/auth/me", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+  if (current.ok) return { headers: {}, cookie: "" };
+
+  const password = process.env.MOBILE_SHOTS_PASSWORD;
+  if (!password) throw new Error("production screenshot requires MOBILE_SHOTS_PASSWORD");
+  const login = await fetch(BASE + "/api/auth", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!login.ok) throw new Error(`screenshot login failed: ${login.status}`);
+  const cookie = (login.headers.get("set-cookie") || "").split(";")[0];
+  if (!cookie) throw new Error("screenshot login returned no session cookie");
+  return { headers: { cookie }, cookie };
+}
+
 mkdirSync(OUT, { recursive: true });
 
-// 自拉起 dev server（E2E_MODE，独立 dist 避免与本地 3000 dev 争锁）；退出时清理
-const server = spawn("npx", ["next", "dev", "-p", "3100"], {
+// 自拉起已构建的 production server（E2E_MODE 仅用于本地 fixture/auth）；退出时清理。
+const { NEXT_E2E: _nextE2e, ...productionEnv } = process.env;
+const server = process.env.MOBILE_SHOTS_BASE ? null : spawn("npx", ["next", "start", "-p", "3100"], {
   cwd: process.cwd(),
-  env: { ...process.env, E2E_MODE: "1", NEXT_PUBLIC_E2E_MODE: "1", NEXT_E2E: "1" },
+  env: { ...productionEnv, E2E_MODE: "1", NEXT_PUBLIC_E2E_MODE: "1" },
   stdio: "ignore",
   shell: process.platform === "win32",
 });
-const shutdown = () => { try { server.kill(); } catch {} process.exit(0); };
-process.on("SIGINT", shutdown);
-process.on("exit", shutdown);
+const shutdown = () => { try { server?.kill(); } catch {} };
+process.once("SIGINT", () => { shutdown(); process.exit(130); });
+process.once("SIGTERM", () => { shutdown(); process.exit(143); });
+process.once("exit", shutdown);
 
 await waitReady();
-console.log("[mobile-shots] dev server ready");
+console.log("[mobile-shots] server ready");
+const auth = await authenticate();
+const authHeaders = auth.headers;
 
 // 造真实数据：HTML artifact + Markdown artifact + 一个任务（首页最近任务区块有内容）
 const htmlId = await createArtifact({ filename: "嘉立创PCB打样-电路板-嵌入式详解.html", mime: "text/html", kind: "html", content: HTML_ARTIFACT, source: "shot" });
@@ -124,6 +150,10 @@ const browser = await chromium.launch();
 const results = [];
 for (const vp of VIEWPORTS) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: 2 });
+  if (auth.cookie) {
+    const [name, ...value] = auth.cookie.split("=");
+    await ctx.addCookies([{ name, value: value.join("="), url: BASE }]);
+  }
   const page = await ctx.newPage();
   const shot = (name, fullPage = false) => page.screenshot({ path: `${OUT}/${vp.name}-${name}.png`, fullPage });
   const metrics = {};

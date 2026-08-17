@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { artifactDisplayKind, fmtSize } from "../../lib/job/ui";
 
+// Scripts and forms make an artifact usable, while the missing allow-same-origin
+// keeps untrusted HTML in an opaque origin that cannot access the app.
+const HTML_PREVIEW_SANDBOX = "allow-scripts allow-forms allow-popups";
+
 export type ClientArtifactCard = {
   id: string;
   name: string;
@@ -46,11 +50,22 @@ function HtmlPreview({ a }: { a: ClientArtifactCard }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
+    let objectUrl: string | undefined;
     fetch(a.downloadUrl)
-      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error("load failed"))))
-      .then((blob) => { if (alive) setUrl(URL.createObjectURL(blob)); })
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error("load failed"))))
+      // Artifact HTML is UTF-8 text. Set the blob charset explicitly so pages without a
+      // <meta charset> do not fall back to Windows-1252 inside an opaque iframe origin.
+      .then((text) => new Blob([text], { type: "text/html;charset=utf-8" }))
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (alive) setUrl(objectUrl);
+        else URL.revokeObjectURL(objectUrl);
+      })
       .catch(() => { if (alive) setFailed(true); });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [a.downloadUrl]);
   if (failed) return <FileCard a={a} />;
   return (
@@ -60,7 +75,10 @@ function HtmlPreview({ a }: { a: ClientArtifactCard }) {
         <a href={viewerHref(a)} className="artifact-fullscreen">⛶ 全屏</a>
       </div>
       {url ? (
-        <iframe className="artifact-html-frame" sandbox="" src={url} title={a.name} />
+        <div className="artifact-html-preview-wrap">
+          <iframe className="artifact-html-frame" sandbox={HTML_PREVIEW_SANDBOX} src={url} title={a.name} />
+          <a className="artifact-html-open-hit" href={viewerHref(a)} aria-label={`打开 ${a.name}`} />
+        </div>
       ) : (
         <div className="artifact-meta">加载预览中…</div>
       )}

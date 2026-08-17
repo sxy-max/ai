@@ -98,6 +98,37 @@ for (const vp of MOBILE_VIEWPORTS) {
   });
 }
 
+test.describe("HTML viewer safety and interaction", () => {
+  test.use({ viewport: { width: 430, height: 932 } });
+
+  test("HTML 结果保持 opaque-origin 沙箱且可运行自身交互", async ({ page, request }) => {
+    const create = await request.post("/api/artifacts/create", {
+      data: {
+        filename: "interactive-preview.html",
+        mime: "text/html",
+        kind: "html",
+        source: "manual_upload",
+        content: "<!doctype html><html><body><button id=counter>0</button><script>document.querySelector('#counter').addEventListener('click',()=>document.querySelector('#counter').textContent='互动已启用')</script></body></html>",
+      },
+    });
+    expect(create.ok()).toBeTruthy();
+    const artifact = await create.json() as { id: string };
+
+    await page.goto(`/artifacts/${artifact.id}/viewer`);
+    const frame = page.locator(".viewer-iframe");
+    await expect(frame).toBeVisible();
+    const sandbox = await frame.getAttribute("sandbox");
+    expect(sandbox).toContain("allow-scripts");
+    expect(sandbox).toContain("allow-forms");
+    expect(sandbox).not.toContain("allow-same-origin");
+
+    const counter = page.frameLocator(".viewer-iframe").locator("#counter");
+    await expect(counter).toHaveText("0");
+    await counter.click();
+    await expect(counter).toHaveText("互动已启用");
+  });
+});
+
 test.describe("desktop regression @1280", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 

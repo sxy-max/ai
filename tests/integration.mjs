@@ -383,43 +383,32 @@ try {
 
   // 旧同步产物格式（HTML 转义 / CSV 公式中和 / Markdown 结构）已由 test:core 生成器测试覆盖
 
-  // Phase G：agent workspace —— 上传图片 → .go-ai/manifest.json + .go-ai/vision/ 视觉上下文 → agent 任务完成
-  const agentConv = "gconv";
-  const agentJob = "gjob";
+  // Phase G：当前架构的 multipart 任务入口。附件先绑定 Task，再由 worker 进入
+  // Preflight → Claude Code；不再调用已删除的 /api/files/upload 或 /api/agent/task。
   const uploadForm = new FormData();
+  uploadForm.append("goal", "根据 shot.png 分析界面布局并给出改进建议");
   uploadForm.append("files", new File([Buffer.from(imageAttachment.dataUrl.split(",")[1], "base64")], "shot.png", { type: "image/png" }));
-  const uploadRes = await fetch(`http://127.0.0.1:${appPort}/api/files/upload?conversationId=${agentConv}&jobId=${agentJob}`, {
+  const uploadTask = await fetch(`http://127.0.0.1:${appPort}/api/tasks`, {
     method: "POST",
     headers: { cookie },
     body: uploadForm
   });
-  assert.equal(uploadRes.status, 200);
-
-  const agentTask = await fetch(`http://127.0.0.1:${appPort}/api/agent/task`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ conversationId: agentConv, jobId: agentJob, prompt: "改这个页面" })
-  });
-  assert.equal(agentTask.status, 200);
-  const agentEvents = parseNdjson(await agentTask.text());
-  assert.equal(agentEvents.at(-1).type, "status");
-  assert.equal(agentEvents.at(-1).status, "done");
-
-  const wsRoot = path.join(tempDataDir, agentConv, agentJob);
-  const manifest = JSON.parse(fs.readFileSync(path.join(wsRoot, ".go-ai", "manifest.json"), "utf8"));
-  assert.ok(manifest.files.some((f) => f.name === "shot.png"), "manifest 应登记上传图片");
-  assert.ok(fs.existsSync(path.join(wsRoot, ".go-ai", "vision", "shot.md")), "视觉上下文 .md 应落盘");
-  const visionJson = JSON.parse(fs.readFileSync(path.join(wsRoot, ".go-ai", "vision", "shot.json"), "utf8"));
-  assert.ok(visionJson.raw || visionJson.summary, "结构化视觉上下文应含字段");
+  assert.equal(uploadTask.status, 200);
+  const uploadTaskData = await uploadTask.json();
+  assert.equal(uploadTaskData.task.status, "queued");
+  const uploadDetail = await fetch(`http://127.0.0.1:${appPort}/api/tasks/${uploadTaskData.task.id}`, { headers: { cookie } });
+  assert.equal(uploadDetail.status, 200);
+  const uploadDetailData = await uploadDetail.json();
+  assert.ok(uploadDetailData.files.some((file) => file.filename === "shot.png"), "multipart 附件应绑定到任务");
 
   assert.ok(observations.goHeaders.length >= 11);
   assert.ok(observations.anthropicHeaders.length >= 4);
   assert.equal(observations.goResponsePayloads.length, 4);
   assert.equal(observations.goChatPayloads.length, 2);
   assert.equal(observations.goMessagePayloads.length, 2);
-  assert.equal(observations.visionPayloads.length, 3);
+  assert.equal(observations.visionPayloads.length, 2);
   assert.equal(observations.anthropicPayloads.length, 3);
-  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, async task contract (queued/validation), and agent workspace (manifest + vision context)");
+  console.log("integration ok: auth, provider isolation, all Go protocols, stream failure/truncation, Claude errors, native image payloads, vision-preprocessed images, and current async task contracts (JSON + multipart attachment binding)");
 } finally {
   if (nextProcess && !nextProcess.killed) nextProcess.kill();
   await new Promise((resolve) => providerServer.close(resolve));
