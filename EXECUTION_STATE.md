@@ -1,5 +1,30 @@
 # Go AI — Execution State
 
+## 2026-08-17 V2.1 Final Convergence（本 Goal 收尾轮，生产验收全绿）
+
+> 当前架构的唯一真相见仓库根 **CURRENT_EXECUTION_ARCHITECTURE.md**；本节为历史记录。
+
+**修复（本收尾轮，commit 74db292/a1e88b4）**：
+- **Cancel 真终止**：runAgentJob/runDevStep 透传 AbortSignal → adapter fetch abort；file-agent `/task`+`/chat` 客户端断连立即 SIGKILL claude（此前取消只改状态、claude 幽灵执行到 15 分钟超时，浪费额度并锁住容器）
+- **Job 租约恢复循环收敛**（生产日志实测 18 job × 80 次/2h 的无限循环）：`claimExpiredJob` 只认领每任务最新 job（历史 job 不打断当前执行）；`recoverOrphanedTasks` 认领后按任务状态收敛 job 终态（活动→重新入队、终态→同步 failed/completed/cancelled、queued/paused→interrupted），认领列表移除 recovering——终态任务 + 过期 job 不再每 90s 重复认领
+- 回归测试：Cancel 透传 1 + 恢复收敛 4（终态/queued/latest-job）
+
+**并发收敛（同轮并行会话）**：
+- 普通问答生产强制走 Claude Code：`CHAT_LEGACY_DIRECT=1` 才保留裸模型直连流（仅开发/测试 mock；生产无此变量，不存在第二条智能执行通道）；旧 /api/files/upload + /api/agent/task 路由与聊天内嵌文件任务链删除
+- 模型池硬过滤：`APPROVED_POOL=[flash, pro]`（`lib/preflight/models.ts`），kimi/qwen/glm env 无法重新启用；provider probe 列表与批准池对齐
+- runtimeAvailability 移除 AGENTSCOPE_URL 残留分支
+
+**部署（ai-client:v2.1 + go-ai-file-agent:claude-v20）**：web + worker 全部 v2.1（含上述全部修复）；回滚点 ai-client:v1.8/v2.0 + claude-v18/v19。
+
+**云端真实验收（2026-08-17，tencent-ai）**：
+- **最终矩阵 12/12 PASS**（scripts/cloud-final.mjs，真实 Claude Code + MiniMax 视觉 + 浏览器 + Office）：C01 普通问答（Claude Code Harness）/ C02 代码真实 .py / C03 PPTX 2 页契约 / C04 XLSX / C05 DOCX / C06 PDF / C07 图片问答（视觉进入回答 514 字符）/ C08 综合任务（参考图重构+CSV 整合+移动端+zip 102KB，含验证-修复闭环：第 1 轮缺产物 → 证据回交 → 第 2 轮修复交付）/ C09 项目延续（两轮共享 workspace，文件树 20 项）/ C10 Cancel / C11 并发 3 任务 / C12 移动端 390px 无横向滚动
+- **Cancel 进程级深检查 PASS**（cloud-cancel-deep.mjs + 编排观测）：cancel 前 file-agent 内 claude 进程=1 → cancel 后=0（断连 SIGKILL 生效，非 15 分钟超时）
+- **Recovery 验收 PASS**（cloud-recovery.mjs + 编排）：任务 36d7e241 执行中 kill worker+file-agent → 租约过期 → 孤儿回收（error=「任务在上一轮执行中被中断，已重新入队」）→ 重新入队 → 续跑 completed；job1 收敛 recovering + job2 completed——恢复循环修复在真实故障中验证
+- **存量数据清理**：18 个终态任务的历史 recovering job 手工收敛为终态（UPDATE 18）
+- **Harness Benchmark**（B01-B05 × flash/pro）结果见 docs/HARNESS_BENCHMARK.md
+
+**本地验证**：typecheck ✓ / 单测 449/449 ✓ / build ✓ / E2E 17/17 ✓
+
 ## 2026-08-17 V1.7/V1.8 Final Convergence（本 Goal 收尾轮）
 
 > 当前架构的唯一真相见仓库根 **CURRENT_EXECUTION_ARCHITECTURE.md**；本节为历史记录。

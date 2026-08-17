@@ -1,3 +1,7 @@
+> [!IMPORTANT] **HISTORICAL — 本文描述的是 V1.2-V1.3 时代的执行链（自研 Planner / AgentScope 沙盒）。**
+> 当前唯一执行链：**`CURRENT_EXECUTION_ARCHITECTURE.md`**（Preflight → Execution Directive →
+> Claude Code 统一主 Harness → Go AI Validation）。本文仅保留作为历史语义参考。
+
 # LLM_EXECUTION_CHAIN.md — Cloud AI Work System 执行链（2026-08-14）
 
 > 本文档基于**实际代码路径**梳理（非设计稿）。目标：把系统从「确定性任务系统」升级为「LLM 驱动的任务系统」，并杜绝任务型请求退回普通聊天。

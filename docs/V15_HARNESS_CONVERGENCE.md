@@ -1,3 +1,9 @@
+> [!IMPORTANT] **SUPERSEDED — 2026-08-17 起不再代表当前架构。**
+> 本文件的「最终主 Harness：AgentScope 2.0」决策已被架构收敛 Goal 翻转：
+> **Claude Code 是唯一主 Harness**（go-ai-file-agent 容器），Preflight 决策层负责任务编译，
+> AgentScope 全栈已从生产与仓库删除。当前唯一真相：**`../CURRENT_EXECUTION_ARCHITECTURE.md`**。
+> 本文件仅作历史决策记录。
+
 # V1.5 Harness Convergence — 最终定性（2026-08-16）
 
 依据：三份源码审计（AgentScope/OpenHands/OpenCode+Claude Code）+ 本地冒烟 + 服务器 Phase A 真实验证。

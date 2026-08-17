@@ -557,14 +557,18 @@ export async function POST(request: Request) {
   if (!verifyModelAccess(body.modelToken, body.provider, body.model)) return errorResponse("Model access token is invalid or expired; reload the model list", 403);
   if (body.model.startsWith("mock-")) return mockStream(body.model);
   // 本 Goal：普通问答统一经 Claude Code Harness（轻量 Execution Profile）。
-  // CLAUDE_CHAT_ENABLED=1（生产）时 chat 由容器内 Claude Code 执行，主模型 Auto；
-  // 关闭时（本地开发/测试）保留原模型流。mock 模型不受影响（E2E）。
+  // CLAUDE_CHAT_ENABLED=1（生产）时 chat 由容器内 Claude Code 执行，主模型 Auto。
+  // 裸模型直连流（旧通道）仅当 CHAT_LEGACY_DIRECT=1 显式启用（本地开发/集成测试用
+  // mock provider；生产无此变量，不存在第二条智能执行通道）。mock 模型不受影响（E2E）。
   if (process.env.CLAUDE_CHAT_ENABLED === "1") {
     try {
       return await claudeCodeChat(body);
     } catch (error) {
       return errorResponse("Claude Code 问答通道不可用（file-agent 容器未就绪？）", 503);
     }
+  }
+  if (process.env.CHAT_LEGACY_DIRECT !== "1") {
+    return errorResponse("普通问答统一经 Claude Code Harness（CLAUDE_CHAT_ENABLED=1）；裸模型直连流仅限开发（CHAT_LEGACY_DIRECT=1）", 503);
   }
   const protocol = protocolForModel(body.model, body.provider);
   if (!protocol) return errorResponse(`Unknown protocol route for model: ${body.model}`, 400);

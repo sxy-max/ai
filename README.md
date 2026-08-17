@@ -65,9 +65,9 @@ npx tsx scripts/task-worker.ts
 npm run dev
 ```
 
-页面：`/`（发起任务，可传文件）、`/tasks`（任务列表）、`/tasks/:id`（实时活动 / 步骤 / 产物）、`/workbench`（AgentScope 沙盒工作台）、`/login`。
+页面：`/`（发起任务，可传文件）、`/tasks`（任务列表）、`/tasks/:id`（实时活动 / 步骤 / 产物）、`/projects`（持久项目）、`/chat`（普通问答，统一经 Claude Code）、`/login`。
 
-可选：`DEEPSEEK_API_KEY` 配置后任务规划与回答走 LLM；未配置时任务用确定性规则规划 + 生成器产出文件（闭环仍成立）。
+> 架构唯一真相：**`CURRENT_EXECUTION_ARCHITECTURE.md`**（Claude Code 唯一主 Harness + Preflight 决策层）。任务经确定性规则规划 + Claude Code 容器执行；`DEEPSEEK_API_KEY` 等为生成器回退配置，不影响任务主链。
 
 ### 任务 API
 
@@ -80,15 +80,16 @@ GET  /api/tasks/:id/events     SSE 事件流（cursor 续传，页面断开不�
 GET  /api/artifacts/:id        产物下载（归属校验）
 ```
 
-### 全栈部署（Docker Compose）
+### 全栈部署
 
-```bash
-cd deploy/agentscope
-cp .env ../../.env   # 或自行 export REDIS_PASSWORD / ACCESS_PASSWORD 等
-docker compose up -d --build
-```
+生产部署为单机 Docker 栈（腾讯云 tencent-ai），非 Compose：
 
-Compose 编排：postgres + redis + web（Next.js standalone）+ task-worker + sandbox-daemon + agent-runtime（AgentScope 2.0）。Web 与 Worker 共享 `/data` volume（产物/工作区），任务状态在 PostgreSQL，事件经 Redis 广播。
+- `ai-client`（Next.js standalone，web :3000）
+- `ai-task-worker`（同一镜像内 `node scripts/task-worker.cjs`）
+- `go-ai-file-agent`（Claude Code 执行容器，见 `services/file-agent/Dockerfile`）
+- `goai-postgres` / `goai-redis` / `vision-gateway` / `cc-auth-gateway`
+
+完整构建→传输→部署→回滚流程与踩坑清单：**`docs/V14_CLOUD_DEPLOY_WORKFLOW.md`**。
 
 ## 模型展示
 

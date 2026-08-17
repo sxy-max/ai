@@ -205,6 +205,7 @@ try {
       FEATURED_MODELS: "gpt-5.6-luna,grok-4.5,qwen3.8-max,anthropic/claude-sonnet-5",
       ANTHROPIC_FEATURED_MODELS: "",
       RATE_LIMIT_REQUESTS_PER_MINUTE: "100",
+      CHAT_LEGACY_DIRECT: "1", // 集成测试用 mock provider 验证裸模型流（生产无此变量，统一走 Claude Code）
       QUOTA_DATA_DIR: tempDataDir,
       WORKSPACES_ROOT: tempDataDir,
       ARTIFACTS_ROOT: tempDataDir,

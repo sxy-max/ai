@@ -110,7 +110,7 @@ Display Layer（/tasks/:id、/artifacts/:id、/projects、/chat 消息流）
 | deepseek-v4-flash | Coding / Workspace / Chat 默认主模型（高频低成本） | ✅ 默认 |
 | deepseek-v4-pro | 高难推理主模型 / fallback | ✅ 候选 |
 | minimax-m3 | **Vision Specialist**（仅经 vision-mcp，绝不选为主模型） | ✅ Specialist |
-| kimi-k3 / qwen3.8-max / glm-5.2 | 已移出批准池（成本/策略；经 AGENT_MODEL/FEATURED_MODELS 显式配置可重新启用，capability-safe 校验仍在） | ❌ 池外 |
+| kimi-k3 / qwen3.8-max / glm-5.2 | 已移出批准池（成本/策略）。`APPROVED_POOL` 硬过滤（`lib/preflight/models.ts`），env 无法重新启用——如需启用须改代码并保持 capability-safe 校验 | ❌ 池外 |
 | gpt-5.6-luna | Provider 保留；地区门控（region_unavailable 时不可选） | ⏸ 门控 |
 | grok-4.5 | 上游 503 | ❌ Disabled |
 

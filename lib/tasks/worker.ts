@@ -45,10 +45,10 @@ const LEASE_RENEW_INTERVAL_MS = 30_000;
 const WORKSPACE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 每 6 小时
 const WORKSPACE_TTL_MS = 7 * 24 * 60 * 60 * 1000;          // workspace TTL 7 天
 
-/** 可用运行时（V1.2 WP7）：deterministic 恒可用；claude-code 由 AGENT_URL 判定。 */
+/** 可用运行时：deterministic 恒可用；claude-code 由 AGENT_URL 判定（AgentScope 已退出，无其他运行时）。 */
 export function runtimeAvailability(): Array<"deterministic" | "claude-code"> {
   const available: Array<"deterministic" | "claude-code"> = ["deterministic"];
-  if (process.env.AGENT_URL?.trim() || process.env.AGENTSCOPE_URL?.trim()) available.push("claude-code");
+  if (process.env.AGENT_URL?.trim()) available.push("claude-code");
   return available;
 }
 

@@ -13,7 +13,6 @@ import { buildPersonalizationContext, defaultProfile, loadProfile, saveProfile, 
 import { isFileTaskPrompt, resolveTaskTools } from "../../lib/toolRegistry";
 import { classifyTask } from "../../lib/taskRouter";
 import { isGeneratorKind } from "../../lib/generators/types";
-import { applyJobEvent, INITIAL_JOB } from "../../lib/job/ui";
 import type { JobState } from "../../lib/job/ui";
 async function copyText(text: string) {
   try {
@@ -389,59 +388,6 @@ export default function Home() {
     }
     const artifacts = [...created, ...(last.artifacts || [])];
     return [...out.slice(0, -1), { ...last, content: res.content, artifacts }];
-  }
-
-  async function runFileTask(prompt: string, convId: string, jobId: string) {
-    const retained = filesRef.current;
-    const fd = new FormData();
-    for (const r of retained) fd.append("files", r.file, r.file.name);
-    const up = await fetch(`/api/files/upload?conversationId=${convId}&jobId=${jobId}`, { method: "POST", body: fd });
-    if (!up.ok) throw new Error((await up.text()).slice(0, 200) || "上传失败");
-
-    const pz = buildPersonalizationContext(profile);
-    const res = await fetch("/api/agent/task", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ conversationId: convId, jobId, prompt, memory: pz.memory ? pz.memory.split("\n").map((s) => s.replace(/^- /, "").trim()).filter(Boolean) : [], style: pz.style, skills: selectRelevantSkills(profile.skills, prompt).map((s) => s.content) }),
-    });
-    if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 200) || "文件处理失败");
-
-    let job: JobState = INITIAL_JOB;
-    let artifacts: Artifact[] = [];
-    const paint = () => {
-      setMessages((prev) => {
-        const out = prev.slice();
-        const last = out[out.length - 1];
-        if (last && last.role === "assistant") {
-          out[out.length - 1] = { ...last, job, artifacts: artifacts.length ? artifacts : last.artifacts };
-        }
-        return out;
-      });
-    };
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() || "";
-        for (const line of lines) {
-          const t = line.trim();
-          if (!t) continue;
-          let ev: any;
-          try { ev = JSON.parse(t); } catch { continue; }
-          job = applyJobEvent(job, ev);
-          if (ev.type === "artifact" && ev.artifact) {
-            artifacts = [...artifacts, { id: ev.artifact.id, name: ev.artifact.name, mime: ev.artifact.mime, size: ev.artifact.size, downloadUrl: `/api/artifacts/${ev.artifact.id}`, kind: ev.artifact.kind, status: ev.artifact.status }];
-          }
-          paint();
-        }
-      }
-    } catch (e) { throw new Error("文件处理中断"); }
-    paint();
   }
 
   function newChat() { stopActiveRun(); setCurrentId(uid()); setMessages([]); setInput(""); setAttachments([]); setModel(""); setError(""); setShowOtherModels(false); setSidebar(false); setView("chat"); }

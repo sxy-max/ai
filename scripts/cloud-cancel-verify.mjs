@@ -25,7 +25,8 @@ async function api(path, { method = "GET", body, form } = {}) {
 
 async function login() {
   let r = await api("/api/auth/register", { method: "POST", body: { email: EMAIL, password: PASSWORD, inviteCode: INVITE } });
-  if (r.status !== 200 && r.status !== 409) throw new Error(`register ${r.status}`);
+  if (r.status !== 200 && r.status !== 409 && r.status !== 429) throw new Error(`register ${r.status}`);
+  if (r.status === 429) console.log("register rate-limited; reusing existing account");
   r = await api("/api/auth/login", { method: "POST", body: { email: EMAIL, password: PASSWORD } });
   if (r.status !== 200) throw new Error(`login ${r.status}`);
   const sc = r.headers.getSetCookie?.() || [];

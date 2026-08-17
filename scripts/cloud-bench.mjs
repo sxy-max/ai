@@ -13,7 +13,7 @@ import fs from "node:fs";
 
 const BASE = process.env.E2E_BASE || "http://ai-client:3000";
 const INVITE = process.env.ACCESS_PASSWORD || "";
-const EMAIL = "bench@test.local";
+const EMAIL = `bench-${Date.now()}@test.local`;
 const PASSWORD = "Bench-2026!";
 const MODEL = process.env.BENCH_MODEL || "deepseek-v4-flash";
 const FIXTURES = "/tmp/bench-fixtures";
@@ -30,7 +30,7 @@ async function api(path, { method = "GET", body, form } = {}) {
   const text = await resp.text();
   let json = null;
   try { json = JSON.parse(text); } catch {}
-  return { status: resp.status, json, text };
+  return { status: resp.status, json, text, headers: resp.headers };
 }
 
 function multipart(fields, files) {
@@ -41,9 +41,10 @@ function multipart(fields, files) {
 }
 
 async function login() {
-  let r = await api("/api/register", { method: "POST", body: { email: EMAIL, password: PASSWORD, inviteCode: INVITE } });
-  if (r.status !== 200 && r.status !== 409) throw new Error(`register ${r.status}`);
-  r = await api("/api/login", { method: "POST", body: { email: EMAIL, password: PASSWORD } });
+  let r = await api("/api/auth/register", { method: "POST", body: { email: EMAIL, password: PASSWORD, inviteCode: INVITE } });
+  if (r.status !== 200 && r.status !== 409 && r.status !== 429) throw new Error(`register ${r.status}`);
+  if (r.status === 429) console.log("register rate-limited; reusing existing account");
+  r = await api("/api/auth/login", { method: "POST", body: { email: EMAIL, password: PASSWORD } });
   if (r.status !== 200) throw new Error(`login ${r.status}`);
   cookie = (r.headers.get("set-cookie") || "").split(";")[0];
   if (!cookie) {
