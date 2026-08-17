@@ -470,6 +470,7 @@ async function claudeCodeChat(body: Body): Promise<Response> {
     const built = await buildDirective({
       goal: prompt,
       attachments: (lastUser?.attachments || []).map((a) => ({ kind: a.kind === "image" ? "image" : "text", mime: a.mime, name: a.name })),
+      configuredAgentModel: process.env.AGENT_MODEL?.trim() || undefined,
     });
     directive = { mainModel: built.mainModel, mcpServers: built.mcpServers };
   } catch {}

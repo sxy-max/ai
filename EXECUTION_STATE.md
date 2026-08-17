@@ -1,5 +1,34 @@
 # Go AI — Execution State
 
+## 2026-08-17 V1.7/V1.8 Final Convergence（本 Goal 收尾轮）
+
+> 当前架构的唯一真相见仓库根 **CURRENT_EXECUTION_ARCHITECTURE.md**；本节为历史记录。
+
+**V1.7（ENOEXEC 修复后云端实证）**：
+- matrix6（v1.7）：11/12 PASS——C01-C07/C09-C12 全过；**C08 综合任务失败**，根因两层：
+  1. 旧镜像时序残影（matrix6 的 C08 被 v1.6 worker 的旧 LLM 三步规划处理）——v1.7 重跑排除
+  2. v1.7 下真实失败：file-agent 容器 `--permission-mode acceptEdits` 只授权文件编辑，
+     **Bash（zip 打包/起本地服务器/写 /tmp）全部需审批** → Claude Code 无法打包 zip、
+     无法起服务器做浏览器视觉验证 → 3 次尝试无 zip 产物 → TASK_CONTRACT_RETRYABLE
+
+**V1.8（本 Goal 收尾修复，commit d14d4b7，本地 444/444）**：
+- **file-agent /task 改 `--permission-mode bypassPermissions`**（容器隔离内全权限：
+  非 root、仅 workspace、无 docker/socket/真实 key——Bash 是真实工作必需）
+- **zip 兜底交付**：directive 契约 kind=zip 时，collectOutputs 收集全部交付候选
+  （含 agent 上报路径已注册的文件）打包 deliverable.zip 注册（机械打包不改内容；
+  已有 zip 则跳过）；新增 dev-executor zip 兜底测试
+- **AgentScope 全栈删除**（净删 1785 行）：lib/agentscope、agentscopeRuntime、
+  externalToolExecutor、jobStore、services/agent-runtime、v15/mock 脚本与测试；
+  RuntimeId 收敛 deterministic/claude-code；executionPolicy 删 FORCE_AGENTSCOPE 分支
+- **模型池收敛（用户决策：kimi-k3 太贵，用 DeepSeek）**：Auto 批准池=[flash, pro]，
+  链 agent=flash→pro、reasoning=pro→flash、chat=flash→pro；kimi/qwen/glm 移出池
+  （KNOWN_MODELS 能力声明保留，显式配置可重启用）；FEATURED_MODELS 默认与
+  服务器 .env 同步为 deepseek-v4-flash,deepseek-v4-pro,minimax-m3；AGENT_MODEL=deepseek-v4-flash
+- 服务器部署：ai-client:v1.8 + go-ai-file-agent:claude（v18 镜像）；回滚点
+  ai-client:v1.7-rollback + go-ai-file-agent:claude-v17-rollback
+- 新增 scripts/cloud-bench.mjs（§31/32 Claude Code Harness Benchmark：B01-B05 × 模型对比）
+- 云端矩阵 v1.8 结果见本节末尾（矩阵完成后补）
+
 ## 2026-08-16 V1.6 Architecture Convergence（Claude Code 唯一主 Harness）
 
 > 当前架构的唯一真相见仓库根 **CURRENT_EXECUTION_ARCHITECTURE.md**；本节为历史记录。

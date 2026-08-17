@@ -245,6 +245,8 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
         taskTypeHint: task.type,
         health: providerHealthRegistry,
         availableModels,
+        // AGENT_MODEL 显式覆盖 Auto（须在批准池且健康才生效；未设置时保持 Auto）
+        configuredAgentModel: process.env.AGENT_MODEL?.trim() || undefined,
       });
       console.log(`[task-worker]   directive: ${directive.capabilities.join("+")} → ${directive.mainModel} (${directive.policySource})`);
     } catch { directive = undefined; }
