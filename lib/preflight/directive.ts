@@ -55,6 +55,8 @@ export type ExecutionDirective = {
   capabilities: DirectiveCapability[];
   /** 主模型（Auto 解析结果；用户不可见 Auto 内部）。 */
   mainModel: string;
+  /** 与 mainModel 对应的 Claude Runtime Profile；每个 job 独立注入。 */
+  runtimeProfileId?: "deepseek-flash" | "gpt-luna";
   /** fallback 模型链（同工作环境切换，不重开空任务）。 */
   fallbackModels: string[];
   /** 需要挂载的 MCP 服务器。 */
@@ -74,6 +76,8 @@ export type ExecutionDirective = {
   skills?: string[];
   /** 相关 Memory（Preflight 只选择，内容交给 Claude Code 上下文）。 */
   memory?: string[];
+  /** 用户可见解释/文档的写作与阅读结构约束；代码、日志等原生内容留空。 */
+  contentStandard?: string;
   timeoutMs: number;
   maxAttempts: number;
   policySource: string;

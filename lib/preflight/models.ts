@@ -10,7 +10,6 @@
  * - fallback 在同一工作环境切换，不重开空任务
  */
 
-import { selectModel } from "../policy/modelPolicy";
 import { ProviderHealthRegistry } from "../policy/providerHealth";
 import { quotaCheck } from "../quota";
 import type { DirectiveCapability } from "./directive";
@@ -22,13 +21,10 @@ export type MainModelSelection = {
 };
 
 const FLASH = "deepseek-v4-flash";
-const PRO = "deepseek-v4-pro";
+const LUNA = "gpt-5.6-luna";
 
-// 批准主模型池（2026-08-17 收敛）：主链只用 DeepSeek 系。
-// kimi-k3/qwen3.8-max/glm-5.2 已移出（成本/策略）；minimax-m3 是 Vision Specialist，
-// 绝不选为主模型（视觉经 vision-mcp 进入）。如需重新启用候选，经 AGENT_MODEL 或
-// availableModels 注入即可（capability-safe 校验仍在）。
-const APPROVED_POOL = [FLASH, PRO];
+// 本轮批准池只有两套 Claude Runtime Profile。MiniMax 始终只经 vision-mcp 使用。
+const APPROVED_POOL = [FLASH, LUNA];
 
 export type AutoModelInput = {
   capabilities: DirectiveCapability[];
@@ -55,13 +51,14 @@ function healthyModels(models: string[], health?: ProviderHealthRegistry): { rea
  * 主模型 Auto。返回 null 表示池内无健康模型（调用方给出明确错误，不随机替换）。
  */
 export async function resolveMainModel(input: AutoModelInput): Promise<MainModelSelection | null> {
-  const pool = (input.availableModels?.length ? input.availableModels : APPROVED_POOL).filter((m) => APPROVED_POOL.includes(m));
+  const pool = (input.availableModels !== undefined ? input.availableModels : APPROVED_POOL)
+    .filter((m) => APPROVED_POOL.includes(m));
   const { ready, degraded } = healthyModels(pool, input.health);
   const usable = [...ready, ...degraded];
   if (!usable.length) return null;
 
   const caps = input.capabilities;
-  const isWorkspaceHeavy = caps.includes("coding") || caps.includes("browser");
+  const isWorkspaceHeavy = caps.includes("coding");
   const role = input.reasoning === "high" ? "reasoning" : isWorkspaceHeavy ? "agent" : "chat";
 
   // 用户/系统显式覆盖（env AGENT_MODEL 等）优先，但必须健康且在批准池
@@ -88,14 +85,14 @@ export async function resolveMainModel(input: AutoModelInput): Promise<MainModel
 
 function chainFor(role: "agent" | "chat" | "reasoning"): string[] {
   switch (role) {
-    case "agent": return [FLASH, PRO];      // Coding/Workspace 主力
-    case "reasoning": return [PRO, FLASH];
-    case "chat": return [FLASH, PRO];
+    case "agent": return [FLASH];
+    case "reasoning": return [LUNA, FLASH];
+    case "chat": return [LUNA, FLASH];
   }
 }
 
 /** 兼容入口：同步版本（无 health/quota 时；测试用）。 */
 export function resolveMainModelSync(capabilities: DirectiveCapability[], reasoning: "none" | "auto" | "high"): string {
-  const role = reasoning === "high" ? "reasoning" : capabilities.includes("coding") || capabilities.includes("browser") ? "agent" : "chat";
+  const role = reasoning === "high" ? "reasoning" : capabilities.includes("coding") ? "agent" : "chat";
   return chainFor(role)[0];
 }

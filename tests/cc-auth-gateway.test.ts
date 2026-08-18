@@ -118,3 +118,55 @@ test("cc-auth-gateway translates Anthropic tool streaming to DeepSeek", async (t
   assert.match(events, /event: content_block_delta[\s\S]*"partial_json":"\{\\"topic\\":"/);
   assert.match(events, /event: message_delta[\s\S]*"stop_reason":"tool_use"/);
 });
+
+test("cc-auth-gateway isolates DeepSeek and Luna credentials per request", async (t) => {
+  const received: Array<{ model: string; authorization: string }> = [];
+  const upstream = http.createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const parsed = JSON.parse(body) as { model: string };
+    received.push({ model: parsed.model, authorization: String(req.headers.authorization || "") });
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: parsed.model } }, { finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+  });
+  const upstreamPort = await listen(upstream);
+  const gatewayPort = await availablePort();
+  const gateway = spawn(process.execPath, [path.join(process.cwd(), "services", "cc-auth-gateway", "gateway.mjs")], {
+    env: {
+      ...process.env,
+      GATEWAY_PORT: String(gatewayPort),
+      CLAUDE_DEEPSEEK_BASE_URL: `http://127.0.0.1:${upstreamPort}`,
+      CLAUDE_LUNA_BASE_URL: `http://127.0.0.1:${upstreamPort}`,
+      CLAUDE_DEEPSEEK_AUTH_TOKEN: "flash-test-key",
+      CLAUDE_LUNA_AUTH_TOKEN: "luna-test-key",
+    },
+    stdio: "ignore",
+  });
+
+  t.after(async () => {
+    if (gateway.exitCode === null) {
+      gateway.kill("SIGTERM");
+      await once(gateway, "exit");
+    }
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+  });
+
+  await waitForHealth(gatewayPort);
+  const requestFor = (model: string) => fetch(`http://127.0.0.1:${gatewayPort}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model, max_tokens: 8, stream: true, messages: [{ role: "user", content: "Reply." }] }),
+  });
+  const [flash, luna] = await Promise.all([requestFor("deepseek-v4-flash"), requestFor("gpt-5.6-luna")]);
+  assert.equal(flash.status, 200);
+  assert.equal(luna.status, 200);
+  await Promise.all([flash.text(), luna.text()]);
+
+  assert.deepEqual(
+    received.sort((a, b) => a.model.localeCompare(b.model)),
+    [
+      { model: "deepseek-v4-flash", authorization: "Bearer flash-test-key" },
+      { model: "gpt-5.6-luna", authorization: "Bearer luna-test-key" },
+    ],
+  );
+});

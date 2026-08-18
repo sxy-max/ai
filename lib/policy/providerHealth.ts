@@ -15,9 +15,8 @@ export type ProviderProbeRecord = {
   note?: string;
 };
 
-/** 内置已知状态（研究路径保留：Luna 区域受限；Grok 禁用）。 */
+/** 产品硬禁用状态。Runtime Profile 的健康状态必须来自真实探测。 */
 const BUILTIN: Record<string, ProviderStatus> = {
-  "gpt-5.6-luna": "region_unavailable",
   "grok-4.5": "disabled",
 };
 
@@ -75,6 +74,10 @@ export class ProviderHealthRegistry {
       out[model] = this.statusOf(model);
     }
     return out;
+  }
+
+  latestProbeOf(model: string): ProviderProbeRecord | undefined {
+    return this.records.get(model);
   }
 }
 

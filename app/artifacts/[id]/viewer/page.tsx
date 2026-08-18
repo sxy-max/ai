@@ -57,6 +57,26 @@ export default function ArtifactViewerPage() {
   const [more, setMore] = useState(false);
   const [error, setError] = useState("");
 
+  // Safari occasionally reports a stale 100dvh while its bottom chrome is
+  // animating. Use the visual viewport only as a measured fallback.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => {
+      const shell = document.querySelector<HTMLElement>(".viewer-shell");
+      if (!shell) return;
+      shell.style.height = `${Math.max(200, viewport.height)}px`;
+      shell.style.maxHeight = `${Math.max(200, viewport.height)}px`;
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {

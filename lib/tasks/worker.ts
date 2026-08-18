@@ -232,17 +232,12 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
     const context = await buildPlanContext(task);
     // V1.2 WP3/WP7：生成统一执行策略（runtime/模型角色/预算/工具）；dev 步骤据此选 runtime
     const executionPlan = buildExecutionPlan(task, context.files);
-    // V1.3 WP22-23：availableModels 来自 ProviderHealth（probe 结果；不可用模型被排除）
-    let availableModels: string[] | undefined;
-    try {
-      const { providerHealthRegistry } = await import("../policy/providerHealth");
-      const { readProbeResults, applyProbeCacheToRegistry } = await import("../policy/providerProbe");
-      applyProbeCacheToRegistry(await readProbeResults());
-      availableModels = providerHealthRegistry.availableModels(
-        (process.env.FEATURED_MODELS || "deepseek-v4-pro,deepseek-v4-flash,minimax-m3,gpt-5.6-luna")
-          .split(",").map((m) => m.trim()).filter(Boolean)
-      );
-    } catch {}
+      // Runtime Profiles 自己探测 Claude-compatible gateway；旧 OPENCODE 模型池不再参与任务 Auto。
+      let availableModels: string[] | undefined;
+      try {
+        const { availableRuntimeModels } = await import("../execution-profiles");
+        availableModels = await availableRuntimeModels();
+      } catch {}
     policy = planExecutionPolicy({
       requirements: requirementsFromPlan(executionPlan),
       availableRuntimes: runtimeAvailability(),
@@ -263,11 +258,17 @@ export async function runTaskToEnd(taskId: string, signal: AbortSignal): Promise
         taskTypeHint: task.type,
         health: providerHealthRegistry,
         availableModels,
-        // AGENT_MODEL 显式覆盖 Auto（须在批准池且健康才生效；未设置时保持 Auto）
-        configuredAgentModel: process.env.AGENT_MODEL?.trim() || undefined,
+        // Auto 是任务默认；手动 Profile 只从用户请求的 executionProfileId 进入 chat。
+        configuredAgentModel: undefined,
       });
       console.log(`[task-worker]   directive: ${directive.capabilities.join("+")} → ${directive.mainModel} (${directive.policySource})`);
-    } catch { directive = undefined; }
+    } catch (error) {
+      // A configured Runtime Profile pool that has no healthy member is a
+      // terminal preflight state. Continuing would start Claude Code without a
+      // usable credential and later misreport the failure as a missing artifact.
+      if (availableModels?.length === 0) throw error;
+      directive = undefined;
+    }
     // V1.3 WP2：创建 Durable Job（Task=意图，Job=执行；重试时 attempt 递增）
     job = await createJob({
       taskId: task.id,

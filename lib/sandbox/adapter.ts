@@ -37,6 +37,7 @@ export type SandboxRunRequest = {
   directive?: {
     taskType?: string;
     mainModel?: string;
+    runtimeProfileId?: "deepseek-flash" | "gpt-luna";
     fallbackModels?: string[];
     capabilities?: string[];
     mcpServers?: string[];
@@ -45,6 +46,7 @@ export type SandboxRunRequest = {
     reasoning?: string;
     profile?: string;
     workspaceMode?: string;
+    contentStandard?: string;
   };
   /** 本 Goal：Go AI Validation 失败证据回交（同一工作上下文继续修，不重开空任务）。 */
   repair?: {

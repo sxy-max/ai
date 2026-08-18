@@ -93,12 +93,12 @@ test("models: coding → DeepSeek V4 Flash（默认主模型）", () => {
   assert.equal(resolveMainModelSync(["coding", "browser"], "auto"), "deepseek-v4-flash");
 });
 
-test("models: reasoning → Pro 优先", () => {
-  assert.equal(resolveMainModelSync(["reasoning"], "high"), "deepseek-v4-pro");
+test("models: reasoning → Luna 优先", () => {
+  assert.equal(resolveMainModelSync(["reasoning"], "high"), "gpt-5.6-luna");
 });
 
-test("models: general → Flash（轻量档）", () => {
-  assert.equal(resolveMainModelSync(["general"], "auto"), "deepseek-v4-flash");
+test("models: general → Luna（健康时）", () => {
+  assert.equal(resolveMainModelSync(["general"], "auto"), "gpt-5.6-luna");
 });
 
 test("build: 完整组合（Excel+图片 → PPT）产出 directive", async () => {

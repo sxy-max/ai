@@ -2,8 +2,8 @@
  * ModelPolicyEngine（V1.2 WP4）：模型按能力分工。
  * 目标：模型只负责适合自己的部分，禁止"一个模型包打天下"。
  * 选择规则（deterministic-first）：
- *   A 普通知识/文本 → 稳定低成本模型
- *   B 高难推理 → reasoning model（deepseek-v4-pro，fallback qwen/glm 等 reasoning model）
+ *   A 普通知识/文本 → GPT 5.6 Luna，失败时回退 DeepSeek V4 Flash
+ *   B 高难推理 → GPT 5.6 Luna，失败时回退 DeepSeek V4 Flash
  *   C 文件 Agent → deepseek-v4-flash（tool execution / instruction following 优先，非长推理）
  *   D Vision → MiniMax Vision（视觉模型只负责观察）
  *   E Artifact 内容 → content model + deterministic renderer
@@ -33,7 +33,7 @@ export type ModelSelectionResult = {
   fallbackTried: string[];
 };
 
-const DEFAULT_AVAILABLE = ["deepseek-v4-pro", "deepseek-v4-flash", "minimax-m3"];
+const DEFAULT_AVAILABLE = ["gpt-5.6-luna", "deepseek-v4-flash", "minimax-m3"];
 
 type ResolvedConfig = {
   planner?: string;
@@ -67,22 +67,22 @@ export function filterCapabilitySafe(required: CapabilityId[], models: string[])
  */
 export function selectModel(input: ModelSelectionInput): ModelSelectionResult {
   const config = resolveConfig(input.configured);
-  const available = input.availableModels?.length ? input.availableModels : DEFAULT_AVAILABLE;
+  const available = input.availableModels !== undefined ? input.availableModels : DEFAULT_AVAILABLE;
   // 必须 capability-safe：过滤后为空意味着"无可用模型"，不允许回退到不满足需求的模型
   const candidates = filterCapabilitySafe(input.requiredCapabilities || [], available);
   const fallbackTried: string[] = [];
 
   const roleChains: Record<ModelRolePolicy, string[]> = {
-    // A. 普通知识/文本：稳定低成本优先（2026-08-17：主链收敛 DeepSeek 系）
-    chat: [config.chat || "deepseek-v4-flash", "deepseek-v4-pro"],
+    // A. 普通知识/文本：Luna；上游不可用时 Flash
+    chat: [config.chat || "gpt-5.6-luna", "deepseek-v4-flash"],
     // 规划：内容模型即可（确定性规则优先于 LLM 规划）
-    planner: [config.planner || "deepseek-v4-pro", "deepseek-v4-flash"],
+    planner: [config.planner || "gpt-5.6-luna", "deepseek-v4-flash"],
     // E. 产物内容：稳定内容模型
-    content: [config.content || "deepseek-v4-pro", "deepseek-v4-flash"],
+    content: [config.content || "deepseek-v4-flash"],
     // C. 文件 Agent：tool execution 优先（flash），非长推理
-    agent: [config.agent || "deepseek-v4-flash", "deepseek-v4-pro"],
+    agent: [config.agent || "deepseek-v4-flash", "deepseek-v4-flash"],
     // B. 高难推理：reasoning model
-    reasoning: [config.reasoning || "deepseek-v4-pro", "deepseek-v4-flash"],
+    reasoning: [config.reasoning || "gpt-5.6-luna", "deepseek-v4-flash"],
     // D. 视觉：视觉模型只负责观察（Vision Specialist）
     vision: [config.vision || "minimax-m3"],
   };

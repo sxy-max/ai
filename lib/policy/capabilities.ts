@@ -105,12 +105,12 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
   },
   // 2026-08-17：kimi-k3 已移出模型池（用户成本决策）；能力数据保留在协议层，
   // 经 AGENT_MODEL/FEATURED_MODELS 重新启用时仍有 capability-safe 校验。
-  // 研究路径保留（当前 region 受限；见 WP18 ProviderHealthRegistry / WP24 ProviderRoute）
+  // General/reasoning Claude Runtime Profile；真实可用性来自 runtime probe。
   "gpt-5.6-luna": {
     id: "gpt-5.6-luna",
     reasoning: "high",
     region: "eligible-egress",
-    capabilities: new Set(["text_generation", "reasoning", "vision", "visual_understanding", "code_execution", "artifact_generation", "structured_output"]),
+    capabilities: new Set(["text_generation", "reasoning", "vision", "visual_understanding", "code_execution", "file_read", "file_write", "tool_execution", "multi_step_agent", "artifact_generation", "structured_output"]),
   },
 };
 

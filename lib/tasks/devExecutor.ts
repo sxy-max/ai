@@ -318,7 +318,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
         // 本 Goal：turns 按执行档位——综合/长任务（heavy/workspace）给足预算，
         // 避免复杂任务在交付阶段因 max-turns 用尽 exit 1
         maxTurns: input.directive?.profile === "heavy" ? 40 : input.directive?.profile === "quick" ? 15 : 25,
-        model: policy?.executorModel || input.directive?.mainModel || undefined,
+        model: input.directive?.mainModel || policy?.executorModel || undefined,
         visionMd: vision.visionMd,
         fileManifest: true,
         skills: input.skills ? [input.skills] : [],
@@ -326,6 +326,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
           ? {
               taskType: input.directive.taskType,
               mainModel: input.directive.mainModel,
+              runtimeProfileId: input.directive.runtimeProfileId,
               fallbackModels: input.directive.fallbackModels,
               capabilities: input.directive.capabilities,
               mcpServers: input.directive.mcpServers,
@@ -334,6 +335,7 @@ export async function runDevStep(input: DevStepInput, deps?: { adapter?: AgentRu
               reasoning: input.directive.reasoning,
               profile: input.directive.profile,
               workspaceMode: input.directive.workspaceMode,
+              contentStandard: input.directive.contentStandard,
             }
           : undefined,
         repair,

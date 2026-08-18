@@ -2,9 +2,18 @@ import crypto from "node:crypto";
 import http from "node:http";
 
 const PORT = Number(process.env.GATEWAY_PORT || 18081);
-const BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
-const API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEFAULT_BASE_URL = (process.env.CLAUDE_PROFILE_BASE_URL || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
 const DEFAULT_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+const PROFILES = {
+  "deepseek-v4-flash": {
+    baseUrl: (process.env.CLAUDE_DEEPSEEK_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    apiKey: process.env.CLAUDE_DEEPSEEK_AUTH_TOKEN || process.env.DEEPSEEK_API_KEY || "",
+  },
+  "gpt-5.6-luna": {
+    baseUrl: (process.env.CLAUDE_LUNA_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    apiKey: process.env.CLAUDE_LUNA_AUTH_TOKEN || "",
+  },
+};
 
 function writeJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -205,10 +214,11 @@ async function streamToAnthropic(upstream, res, model, signal) {
 }
 
 async function handleMessages(req, res) {
-  if (!API_KEY) return anthropicError(res, 503, "DeepSeek API key is not configured");
   let input;
   try { input = await readRequest(req); } catch { return anthropicError(res, 400, "Invalid JSON request"); }
-  const model = typeof input.model === "string" && /^deepseek-v4-(flash|pro)$/.test(input.model) ? input.model : DEFAULT_MODEL;
+  const model = typeof input.model === "string" && Object.prototype.hasOwnProperty.call(PROFILES, input.model) ? input.model : DEFAULT_MODEL;
+  const profile = PROFILES[model] || PROFILES["deepseek-v4-flash"];
+  if (!profile.apiKey) return anthropicError(res, 503, `Runtime profile credential is not configured for ${model}`);
   const payload = {
     model,
     messages: deepSeekMessages(input),
@@ -223,18 +233,18 @@ async function handleMessages(req, res) {
   });
   let upstream;
   try {
-    upstream = await fetch(`${BASE_URL}/chat/completions`, {
+    upstream = await fetch(`${profile.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${profile.apiKey}` },
       body: JSON.stringify(payload),
       signal: AbortSignal.any([abort.signal, AbortSignal.timeout(120_000)]),
     });
   } catch {
-    return anthropicError(res, 502, "DeepSeek provider connection failed");
+    return anthropicError(res, 502, `${model} provider connection failed`);
   }
   if (!upstream.ok || !upstream.body) {
     const detail = await upstream.json().catch(() => null);
-    return anthropicError(res, upstream.status || 502, String(detail?.error?.message || "DeepSeek provider request failed").slice(0, 300));
+    return anthropicError(res, upstream.status || 502, String(detail?.error?.message || `${model} provider request failed`).slice(0, 300));
   }
   if (input.stream === false) {
     const body = await upstream.json();
@@ -245,7 +255,11 @@ async function handleMessages(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  if (req.method === "GET" && req.url === "/health") return writeJson(res, 200, { ok: true, provider: "deepseek", model: DEFAULT_MODEL });
+  if (req.method === "GET" && req.url === "/health") return writeJson(res, 200, {
+    ok: true,
+    provider: "claude-runtime-gateway",
+    profiles: Object.fromEntries(Object.entries(PROFILES).map(([model, profile]) => [model, { configured: Boolean(profile.apiKey), baseUrl: profile.baseUrl }]))
+  });
   if (req.method === "POST" && req.url?.startsWith("/v1/messages")) return void handleMessages(req, res);
   return writeJson(res, 404, { error: "not found" });
 });

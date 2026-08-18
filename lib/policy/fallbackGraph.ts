@@ -8,13 +8,14 @@ import { capabilitiesForModel, modelHasCapability, type CapabilityId } from "./c
 import type { ModelRolePolicy } from "./modelPolicy";
 
 /** 角色降级链（顺序即优先级；与 ModelPolicyEngine 角色链一致）。
- *  2026-08-17 收敛：主链 DeepSeek 系；vision 仅 MiniMax（Specialist）。 */
+ *  本轮：coding/workspace=DeepSeek Flash，general/reasoning=GPT 5.6 Luna；
+ *  vision 仍仅 MiniMax（Specialist）。 */
 export const FALLBACK_CHAINS: Record<ModelRolePolicy, string[]> = {
-  chat: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  planner: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  content: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  agent: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  reasoning: ["deepseek-v4-pro", "deepseek-v4-flash"],
+  chat: ["gpt-5.6-luna", "deepseek-v4-flash"],
+  planner: ["gpt-5.6-luna", "deepseek-v4-flash"],
+  content: ["deepseek-v4-flash"],
+  agent: ["deepseek-v4-flash"],
+  reasoning: ["gpt-5.6-luna", "deepseek-v4-flash"],
   vision: ["minimax-m3"],
 };
 

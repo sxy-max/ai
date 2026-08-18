@@ -2,9 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import AppShell from "../../components/AppShell";
 import MessageParts from "../../components/message/MessageParts";
-import PersonalizationPanel from "../../components/personalization/Panel";
 import { createAccumulator, accumulate, finalizeStatus, streamingStatus, sanitizeForUpstream } from "../../lib/message/lifecycle";
 import { shouldRetryForLengthTruncation } from "../../lib/message/reasoningRetry";
 import { transformContent } from "../../lib/artifacts/transform";
@@ -14,6 +12,7 @@ import { isFileTaskPrompt, resolveTaskTools } from "../../lib/toolRegistry";
 import { classifyTask } from "../../lib/taskRouter";
 import { isGeneratorKind } from "../../lib/generators/types";
 import type { JobState } from "../../lib/job/ui";
+import type { ExecutionProfile } from "../../lib/execution-profiles";
 async function copyText(text: string) {
   try {
     if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
@@ -46,9 +45,11 @@ type SearchMode = "off" | "auto" | "on";
 type ContextMode = "compact" | "balanced" | "full";
 type ReasoningEffort = "off" | "auto" | "low" | "medium" | "high";
 type ThemeMode = "system" | "light" | "dark";
+type ExecutionProfileChoice = "auto" | "deepseek-flash" | "gpt-luna";
 
 const STORAGE_KEY = "go-ai-conversations-v3";
 const SETTINGS_KEY = "go-ai-settings-v3";
+const EXECUTION_PROFILE_KEY = "go-ai-execution-profile-v1";
 const MAX_FILES = 4;
 const MAX_IMAGE_FILE_BYTES = 12_000_000;
 const MAX_PDF_FILE_BYTES = 15_000_000;
@@ -193,10 +194,6 @@ export default function Home() {
   const [authed, setAuthed] = useState(E2E);
   const [loginError, setLoginError] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [providerWarnings, setProviderWarnings] = useState<string[]>([]);
-  const [modelSearch, setModelSearch] = useState("");
-  const [showOtherModels, setShowOtherModels] = useState(false);
-  const [allowOtherModels, setAllowOtherModels] = useState(false);
   const [model, setModel] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -212,7 +209,10 @@ export default function Home() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [profile, setProfile] = useState<PersonalizationProfile>(defaultProfile);
-  const [view, setView] = useState<"chat" | "settings" | "personalization">("chat");
+  const [executionProfileId, setExecutionProfileId] = useState<ExecutionProfileChoice>("auto");
+  const [executionProfiles, setExecutionProfiles] = useState<ExecutionProfile[]>([]);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   const [error, setError] = useState("");
   const [sidebar, setSidebar] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -228,6 +228,7 @@ export default function Home() {
   const fileBusyRef = useRef(false);
   const filesRef = useRef<FileTaskInfo[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -266,6 +267,10 @@ export default function Home() {
       if (["off", "auto", "low", "medium", "high"].includes(s.reasoningEffort)) setReasoningEffort(s.reasoningEffort);
       if (["system", "light", "dark"].includes(s.theme)) setTheme(s.theme);
     } catch {}
+    try {
+      const savedProfile = localStorage.getItem(EXECUTION_PROFILE_KEY);
+      if (savedProfile === "auto" || savedProfile === "deepseek-flash" || savedProfile === "gpt-luna") setExecutionProfileId(savedProfile);
+    } catch {}
     setProfile(loadProfile());
     setStorageReady(true);
     void authenticate(true);
@@ -275,17 +280,26 @@ export default function Home() {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const onResize = () => {
-      const shell = document.querySelector(".app-shell") as HTMLElement | null;
-      if (shell) shell.style.height = `${Math.max(200, vv.height)}px`;
+    const onViewportChange = () => {
+      const shell = shellRef.current;
+      if (!shell) return;
+      const height = `${Math.max(200, vv.height)}px`;
+      shell.style.height = height;
+      shell.style.maxHeight = height;
     };
-    vv.addEventListener("resize", onResize);
-    return () => vv.removeEventListener("resize", onResize);
+    onViewportChange();
+    vv.addEventListener("resize", onViewportChange);
+    vv.addEventListener("scroll", onViewportChange);
+    return () => {
+      vv.removeEventListener("resize", onViewportChange);
+      vv.removeEventListener("scroll", onViewportChange);
+    };
   }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, searchBusy]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)); } catch {} }, [conversations, storageReady]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme })); } catch {} }, [searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme, storageReady]);
+  useEffect(() => { if (!storageReady) return; try { localStorage.setItem(EXECUTION_PROFILE_KEY, executionProfileId); } catch {} }, [executionProfileId, storageReady]);
   useEffect(() => { if (!storageReady) return; saveProfile(profile); }, [profile, storageReady]);
 
   // 自动主题：system 跟随系统；light/dark 手动覆盖。无硬编码时间点。
@@ -311,10 +325,16 @@ export default function Home() {
       const modelResponse = await fetch("/api/models", { cache: "no-store" });
       const data = await modelResponse.json().catch(() => ({}));
       if (authRunRef.current !== authRunId) return;
-      if (!modelResponse.ok) { setAuthed(false); return; }
-      setModels(Array.isArray(data.models) ? data.models : []);
-      setAllowOtherModels(data.allowOtherModels === true);
-      setProviderWarnings(Array.isArray(data.warnings) ? data.warnings.filter((value: unknown) => typeof value === "string") : []);
+      if (modelResponse.ok) {
+        const available = Array.isArray(data.models) ? data.models as ModelInfo[] : [];
+        setModels(available);
+        setModel((current) => current || available.find((item) => item.supported)?.key || "");
+      }
+      const profileResponse = await fetch("/api/execution-profiles", { cache: "no-store" });
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json().catch(() => ({}));
+        if (Array.isArray(profileData.profiles)) setExecutionProfiles(profileData.profiles as ExecutionProfile[]);
+      }
       setAuthed(true);
     } catch {
       if (authRunRef.current !== authRunId) return;
@@ -322,13 +342,8 @@ export default function Home() {
     }
   }
 
-  const featuredModels = useMemo(() => models
-    .filter((m) => typeof m.featuredRank === "number")
-    .sort((a, b) => (a.featuredRank ?? 999) - (b.featuredRank ?? 999)), [models]);
-  const otherModels = useMemo(() => models
-    .filter((m) => typeof m.featuredRank !== "number")
-    .filter((m) => `${m.id} ${m.displayName} ${m.provider}`.toLowerCase().includes(modelSearch.toLowerCase())), [models, modelSearch]);
   const selectedModel = useMemo(() => models.find((m) => m.key === model), [models, model]);
+  const activeModel = selectedModel || models.find((item) => item.supported);
 
   function storageSafeMessages(nextMessages: Message[]) {
     return nextMessages.map((message) => {
@@ -355,7 +370,9 @@ export default function Home() {
         ...message,
         id: safeId,
         content,
-        status: normalizeMessageStatus(message.status),
+        // User messages are not model runs; missing legacy status must not
+        // render a false "回答失败" banner above the user's question.
+        status: message.role === "assistant" ? normalizeMessageStatus(message.status) : undefined,
         attachments: attachments.length ? attachments : undefined,
         webSources: Array.isArray(message.webSources) ? message.webSources.map(({ title, url, summary }) => ({ title, url, summary })) : undefined,
         urlSources: Array.isArray(message.urlSources) ? message.urlSources.map(({ title, url, summary }) => ({ title, url, summary })) : undefined
@@ -402,8 +419,16 @@ export default function Home() {
     return [...out.slice(0, -1), { ...last, content: res.content, artifacts }];
   }
 
-  function newChat() { stopActiveRun(); setCurrentId(uid()); setMessages([]); setInput(""); setAttachments([]); setModel(""); setError(""); setShowOtherModels(false); setSidebar(false); setView("chat"); }
-  function openChat(c: Conversation) { stopActiveRun(); setCurrentId(c.id); setMessages(c.messages); setModel(c.model || ""); if (c.model && !models.find((m) => m.key === c.model && typeof m.featuredRank === "number")) setShowOtherModels(true); setAttachments([]); setError(""); setSidebar(false); setView("chat"); }
+  function newChat() { stopActiveRun(); setCurrentId(uid()); setMessages([]); setInput(""); setAttachments([]); setError(""); setSidebar(false); setMoreOpen(false); }
+  function openChat(c: Conversation) { stopActiveRun(); setCurrentId(c.id); setMessages(c.messages); setModel(c.model || ""); setAttachments([]); setError(""); setSidebar(false); setMoreOpen(false); }
+
+  const conversationTitle = conversations.find((conversation) => conversation.id === currentId)?.title
+    || messages.find((message) => message.role === "user")?.content.trim().slice(0, 34)
+    || "新对话";
+  const selectedExecutionProfile = executionProfiles.find((profile) => profile.id === executionProfileId);
+  const executionProfileLabel = executionProfileId === "auto"
+    ? "Auto"
+    : selectedExecutionProfile?.name || (executionProfileId === "gpt-luna" ? "GPT 5.6 Luna" : "DeepSeek V4 Flash");
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -458,12 +483,7 @@ export default function Home() {
 
     const intent = classifyTask({ message: input.trim(), attachments });
     const isTaskRoute = Boolean(intent && (intent.type === "artifact" || intent.type === "agent_workspace"));
-    // 任务型请求走任务系统（DeepSeek/确定性生成器/Agent Workspace），不依赖聊天模型选择
-    if (!isTaskRoute) {
-      if (!model) { setError("先选择一个模型。这里没有默认模型。"); return; }
-      if (!selectedModel) { setError("模型列表已经变化，请刷新页面后重选。"); return; }
-      if (!selectedModel.supported) { setError("这个模型已出现，但当前协议路由尚未识别。"); return; }
-    }
+    // 任务型请求仍走任务系统；普通问答同样由 Claude Code 的轻量执行 profile 完成。
 
     if (intent && intent.type === "artifact" && isGeneratorKind(intent.artifactKind)) {
       setBusy(true); setError("");
@@ -514,17 +534,16 @@ export default function Home() {
     setError(""); setBusy(true);
     const runId = runRef.current + 1;
     runRef.current = runId;
-    const activeModel = selectedModel!; // 任务分支已提前 return，此处必有模型
     const prompt = input.trim();
     const preparedAttachments = attachments.map((a) => contextAttachment(a, contextMode));
     const hasImages = preparedAttachments.some((a) => a.kind === "image");
-    const visionUsed = hasImages && selectedModel!.vision !== true;
+    const visionUsed = hasImages;
     if (visionUsed) setVisionBusy(true);
     const taskTools = resolveTaskTools(prompt, { searchMode, hasUrls: extractUrls(prompt).length > 0, hasImages, hasFiles: preparedAttachments.length > 0 });
     const userBase: Message = { id: uid(), role: "user", content: prompt, attachments: preparedAttachments, webUsed: false, urlUsed: extractUrls(prompt).length > 0, visionUsed };
-    const assistant: Message = { id: uid(), role: "assistant", content: "", reasoning: "", model: activeModel.key, provider: activeModel.provider };
+    const assistant: Message = { id: uid(), role: "assistant", content: "", reasoning: "", model: "claude-code-auto", provider: activeModel?.provider };
     let outgoing: Message[] = [...messages, userBase];
-    setMessages([...outgoing, assistant]); setInput(""); setAttachments([]); persist(outgoing, activeModel.key, activeModel.provider);
+    setMessages([...outgoing, assistant]); setInput(""); setAttachments([]); persist(outgoing, "claude-code-auto", activeModel?.provider);
     const controller = new AbortController(); abortRef.current = controller;
     let streamedText = "";
     let streamedReasoning = "";
@@ -535,7 +554,7 @@ export default function Home() {
       if (runRef.current !== runId) return;
       const user = { ...userBase, webUsed: external.webUsed, urlUsed: external.urlUsed, webSources: external.webSources, urlSources: external.urlSources };
       outgoing = [...messages, user];
-      setMessages([...outgoing, assistant]); persist(outgoing, activeModel.key, activeModel.provider);
+      setMessages([...outgoing, assistant]); persist(outgoing, "claude-code-auto", activeModel?.provider);
 
       const options = {
         temperature,
@@ -556,14 +575,13 @@ export default function Home() {
       const pz = buildPersonalizationContext(profile);
       const relevantSkills = selectRelevantSkills(profile.skills, prompt);
       const requestBody = JSON.stringify({
-        provider: activeModel.provider,
-        model: activeModel.id,
-        modelToken: activeModel.modelToken,
+        ...(activeModel ? { provider: activeModel.provider, model: activeModel.id, modelToken: activeModel.modelToken } : {}),
+        executionProfileId,
         messages: apiMessages,
         webContext: external.webContext,
         urlContext: external.urlContext,
         options,
-        visionCapability: activeModel.vision,
+        visionCapability: activeModel?.vision,
         personalization: pz,
         skills: relevantSkills.map((s) => ({ name: s.name, content: s.content }))
       });
@@ -638,7 +656,7 @@ export default function Home() {
       const _content = !_finalText ? (_finalReason ? "（模型完成了推理，但没有返回最终回答，可以重试。）" : "") : streamedText;
       const completed = [...outgoing, { ...assistant, content: _content, reasoning: streamedReasoning, status: _status }];
       setMessages(completed);
-      persist(completed, activeModel.key, activeModel.provider);
+      persist(completed, "claude-code-auto", activeModel?.provider);
       if (_status === "incomplete" || _status === "failed") {
         // WP8：异常完成不得作为正常 assistant 消息进入下一轮（sanitizeForUpstream 已过滤），UI 明确提示
         setError(_status === "incomplete"
@@ -646,14 +664,14 @@ export default function Home() {
           : "模型未返回任何有效回答，请重试。");
       }
       if (_status === "completed") {
-        processAutoArtifact(completed, prompt).then((updated) => { if (runRef.current === runId) { setMessages(updated); persist(updated, activeModel.key, activeModel.provider); } });
+        processAutoArtifact(completed, prompt).then((updated) => { if (runRef.current === runId) { setMessages(updated); persist(updated, "claude-code-auto", activeModel?.provider); } });
       }
       if (/max_tokens|incomplete|model_context_window_exceeded/i.test(stopReason)) setError("回答因输出或上下文上限提前结束。");
     } catch (e: any) {
       if (runRef.current === runId) {
         const partial = streamedText || streamedReasoning ? [...outgoing, { ...assistant, content: streamedText, reasoning: streamedReasoning }] : outgoing;
         setMessages(partial);
-        persist(partial, activeModel.key, activeModel.provider);
+        persist(partial, "claude-code-auto", activeModel?.provider);
         if (e?.name !== "AbortError") setError(`请求失败：${e?.message || e}`);
       }
     } finally {
@@ -665,56 +683,56 @@ export default function Home() {
 
   if (!authed) return <main className="login-shell"><section className="login-card"><p className="auth-hint">正在验证登录状态…</p></section></main>;
 
-  return <main className="app-shell">
-      <AppShell title="聊天" backTo="/" noTopBar />
-    <aside className={`sidebar ${sidebar ? "open" : ""}`}><div className="side-head"><strong>Go AI</strong><button onClick={() => setSidebar(false)}>×</button></div><button className="new-chat" onClick={newChat}>＋ 新对话</button><div className="history">{conversations.map((c) => <button key={c.id} className={c.id === currentId ? "active" : ""} onClick={() => openChat(c)}><span>{c.title}</span><small>{c.model ? prettyModel(c.model) : "未选模型"}</small></button>)}</div><div className="side-foot"><button className={`side-nav ${view === "personalization" ? "active" : ""}`} onClick={() => { setSidebar(false); setView("personalization"); }}><span>🧭</span>个性化</button><button className={`side-nav ${view === "settings" ? "active" : ""}`} onClick={() => { setSidebar(false); setView("settings"); }}><span>⚙</span>设置</button></div></aside>
+  return <main ref={shellRef} className="app-shell conversation-shell">
+    <aside className={`sidebar ${sidebar ? "open" : ""}`}>
+      <div className="side-head"><strong>Go AI</strong><button onClick={() => setSidebar(false)} aria-label="关闭对话列表">×</button></div>
+      <button className="new-chat" onClick={newChat}>＋ 新对话</button>
+      <div className="history">{conversations.map((c) => <button key={c.id} className={c.id === currentId ? "active" : ""} onClick={() => openChat(c)}><span>{c.title}</span><small>{c.model ? prettyModel(c.model) : "Auto"}</small></button>)}</div>
+      <div className="side-foot"><a className="side-nav" href="/settings">⚙ 设置</a></div>
+    </aside>
     {sidebar && <div className="scrim" onClick={() => setSidebar(false)} />}
 
     <section className="chat-panel">
-      <header><button className="icon-btn" onClick={() => setSidebar(true)}>☰</button><div className="model-wrap"><span className="eyebrow">MODEL</span><select value={model} onChange={(e) => setModel(e.target.value)}><option value="">选择最强模型…</option>{featuredModels.length ? <optgroup label="最佳模型">{featuredModels.map((m) => <option key={m.key} value={m.key} disabled={!m.supported}>{m.displayName || prettyModel(m.id)} · {m.provider === "anthropic" ? "Claude" : "Go"}{m.useCase ? ` · ${m.useCase}` : ""}{!m.supported ? " · route?" : ""}</option>)}</optgroup> : null}{showOtherModels && otherModels.length ? <optgroup label="其他模型 · 高级选项">{otherModels.map((m) => <option key={m.key} value={m.key} disabled={!m.supported}>{m.displayName || prettyModel(m.id)} · {m.provider === "anthropic" ? "Claude" : "Go"}{!m.supported ? " · route?" : ""}</option>)}</optgroup> : null}</select></div>{view === "chat" ? <button className="icon-btn" onClick={newChat}>＋</button> : <button className="icon-btn" title="返回聊天" onClick={() => setView("chat")}>✕</button>}</header>
+      <header className="conversation-header">
+        <button className="icon-btn" onClick={() => setSidebar(true)} aria-label="打开对话列表">☰</button>
+        <div className="conversation-heading"><strong title={conversationTitle}>{conversationTitle}</strong><small>{executionProfileLabel}</small></div>
+        <button className="icon-btn" onClick={() => setMoreOpen(true)} aria-label="更多会话操作">⋯</button>
+      </header>
 
-      {view === "chat" ? <>
-        <div className="model-controls">
-          <div className="model-search">{allowOtherModels && <button className={showOtherModels ? "other-toggle active" : "other-toggle"} onClick={() => setShowOtherModels((x) => !x)}>{showOtherModels ? "收起其他模型" : "显示其他模型"}</button>}{allowOtherModels && showOtherModels && <input value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} placeholder="搜索其他模型" />}</div>
-          {providerWarnings.length > 0 && <div className="provider-warning">{providerWarnings.join(" ")}</div>}
-        </div>
+      <div className="messages" data-testid="conversation-scroll" role="log" aria-live="polite">
+        {messages.length === 0 && <div className="empty-state"><div className="hero-orb">AI</div><h2>从问题开始。</h2><p>对话、文件和联网能力会在需要时进入当前 Claude Code 执行。</p></div>}
+        {messages.map((m) => <article key={m.id} className={`message ${m.role}`}>
+          {(m.webUsed || m.urlUsed || m.visionUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.visionUsed && !busy && <span>▧ 视觉分析</span>}</div> : null}
+          {m.urlSources?.length ? <div className="source-grid">{m.urlSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
+          {m.webSources?.length ? <div className="source-grid">{m.webSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
+          <MessageParts message={m} busy={busy} />
+          {m.role === "assistant" && <div className="message-meta"><span>{m.model === "claude-code-auto" ? executionProfileLabel : prettyModel(m.model || "AI")}</span><button className="msg-copy" onClick={() => copyMessage(m)}>{copiedId === m.id ? "已复制 ✓" : "复制"}</button></div>}
+        </article>)}
+        <div ref={bottomRef} />
+      </div>
 
-        <div className="messages">
-          {messages.length === 0 && <div className="empty-state"><div className="hero-orb">AI</div><h2>只把最强模型放在入口。</h2><p>OpenCode Go 始终可独立使用；配置 Anthropic Key 后会自动加入 Claude。联网、URL 和文件内容都只经服务端授权接口处理。</p></div>}
-          {messages.map((m) => <article key={m.id} className={`message ${m.role}`}><div className="role">{m.role === "user" ? "YOU" : prettyModel(m.model || model || "AI")}</div>
-            {(m.attachments?.length || m.webUsed || m.urlUsed || m.visionUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.visionUsed && !busy && <span>▧ 视觉分析</span>}{m.attachments?.map((a) => <span key={a.id}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.compressed ? " · 已压缩" : ""}</span>)}</div> : null}
-            {m.urlSources?.length ? <div className="source-grid">{m.urlSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
-            {m.webSources?.length ? <div className="source-grid">{m.webSources.map((s, i) => <a key={`${s.url}-${i}`} href={safeSourceHref(s.url)} target="_blank" rel="noreferrer"><b>{sourceLabel(s, i)}</b><span>{s.summary || s.title}</span></a>)}</div> : null}
-            <MessageParts message={m} busy={busy} />
-            {m.role === "assistant" && <button className="msg-copy" onClick={() => copyMessage(m)}>{copiedId === m.id ? "已复制 ✓" : "复制"}</button>}
-          </article>)}
-          <div ref={bottomRef} />
+      {E2E && <div data-testid="mock-mode-indicator" style={{ position: "fixed", top: 4, right: 8, fontSize: 10, color: "#7c8495", zIndex: 50 }}>E2E-MOCK</div>}
+      <footer className={`chat-composer-area ${composerFocused ? "focused" : ""}`}>
+        {attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}
+        {error && <div className="error inline">{error}</div>}
+        <div className="composer">
+          <label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label>
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} onPaste={(e) => { const items = e.clipboardData?.items; if (!items) return; const files = []; for (let i = 0; i < items.length; i++) { const it = items[i]; if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) files.push(f); } } if (!files.length) return; e.preventDefault(); const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); handleFiles(dt.files); }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "描述任务，或上传文件/图片让 Agent 处理…"} rows={1} data-testid="chat-input" />
+          {busy ? <button className="send stop" data-testid="send-button" onClick={() => abortRef.current?.abort()} aria-label="停止生成">■</button> : <button className="send" data-testid="send-button" onClick={send} aria-label="发送">↑</button>}
         </div>
-
-        {E2E && <div data-testid="mock-mode-indicator" style={{position:"fixed",top:4,right:8,fontSize:10,color:"#7c8495",zIndex:50}}>E2E-MOCK</div>}
-        <footer>{attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}{error && <div className="error inline">{error}</div>}
-          <div className="tool-row"><button className={searchMode !== "off" ? "tool active" : "tool"} onClick={cycleSearchMode}>◎ {searchBusy ? "检索中" : searchLabel}</button><button className="tool" onClick={() => setView("settings")}>⚙ 设置</button>{visionBusy && <span className="tool status">▧ 视觉分析中…</span>}<span>{selectedModel ? `${prettyModel(selectedModel.id)} · ${selectedModel.protocol}` : "未选择模型"}</span></div>
-          <div className="composer"><label className="attach" title="最多 4 个 JPEG/PNG/GIF/WebP、PDF、文本或代码文件">＋<input type="file" multiple disabled={fileBusy} accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.xml,.yaml,.yml" onChange={(e) => { handleFiles(e.target.files); e.currentTarget.value = ""; }} /></label><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} onPaste={(e) => { const items = e.clipboardData?.items; if (!items) return; const files = []; for (let i = 0; i < items.length; i++) { const it = items[i]; if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) files.push(f); } } if (!files.length) return; e.preventDefault(); const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); handleFiles(dt.files); }} placeholder={fileBusy ? "正在读取文件…" : searchBusy ? "正在检索外部资料…" : "描述任务，或上传文件/图片让 Agent 处理…"} rows={1} data-testid="chat-input" />{busy ? <button className="send stop" data-testid="send-button" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send" data-testid="send-button" onClick={send}>↑</button>}</div>
-          <div className="footnote">历史正文保存在本机 · 附件内容不落盘，刷新后需重新添加 · API Key 只在服务端 · URL/联网使用 Exa MCP</div>
-        </footer>
-      </> : view === "settings" ? (
-        <div className="settings-view">
-          <div className="view-head"><h2>设置</h2><p>高级选项会立即生效，已按当前模型能力自动禁用不支持的参数。</p></div>
-          <div className="settings-grid">
-            <label>主题<select value={theme} onChange={(e) => setTheme(e.target.value as ThemeMode)}><option value="system">自动</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-            <label>联网<select value={searchMode} onChange={(e) => setSearchMode(e.target.value as SearchMode)}><option value="auto">自动</option><option value="on">开启</option><option value="off">关闭</option></select></label>
-            <label>上下文<select value={contextMode} onChange={(e) => setContextMode(e.target.value as ContextMode)}><option value="compact">压缩</option><option value="balanced">平衡</option><option value="full">尽量完整</option></select></label>
-            <label>Reasoning<select value={reasoningEffort} disabled={selectedModel?.reasoningPolicy === "none"} onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}><option value="auto">自动</option><option value="off">关闭</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select>{selectedModel?.reasoningPolicy === "none" && <small>当前模型不支持</small>}</label>
-            <label>温度{selectedModel?.temperaturePolicy?.mode === "fixed" ? <small>固定 {selectedModel.temperaturePolicy.value}</small> : selectedModel?.provider === "anthropic" ? <small>由 Claude 自动管理</small> : null}{selectedModel?.temperaturePolicy?.mode !== "fixed" && <input type="number" min="0" max="2" step="0.1" value={temperature} disabled={selectedModel?.provider === "anthropic"} onChange={(e) => setTemperature(Number(e.target.value))} />}</label>
-            <label>最大输出<input inputMode="numeric" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(e.target.value.replace(/\D/g, ""))} placeholder="默认" /></label>
-          </div>
-        </div>
-      ) : (
-        <div className="settings-view">
-          <div className="view-head"><h2>个性化</h2><p>记忆 · 回复风格 · 我的 Skills。按浏览器本地保存，不共享服务器 Profile。</p></div>
-          <PersonalizationPanel profile={profile} onChange={setProfile} />
-        </div>
-      )}
+      </footer>
     </section>
+
+    {moreOpen && <div className="chat-sheet-backdrop" onClick={() => setMoreOpen(false)}>
+      <section className="chat-more-sheet" role="dialog" aria-modal="true" aria-label="会话设置" onClick={(event) => event.stopPropagation()}>
+        <div className="chat-sheet-head"><strong>会话选项</strong><button onClick={() => setMoreOpen(false)} aria-label="关闭">×</button></div>
+        <div className="chat-sheet-section"><span className="sheet-label">执行模型</span><div className="profile-options">
+          <button className={executionProfileId === "auto" ? "selected" : ""} onClick={() => { setExecutionProfileId("auto"); setMoreOpen(false); }}>Auto<small>按任务能力自动选择</small></button>
+          {executionProfiles.filter((profile) => !profile.maintenance).map((profile) => <button key={profile.id} disabled={!profile.runtimeSelectable} className={executionProfileId === profile.id ? "selected" : ""} onClick={() => { if (!profile.runtimeSelectable) return; setExecutionProfileId(profile.id as ExecutionProfileChoice); setMoreOpen(false); }}><span>{profile.name}</span><small>{profile.statusLabel} · {profile.purpose}</small></button>)}
+        </div></div>
+        <div className="chat-sheet-section"><span className="sheet-label">常用入口</span><label className="sheet-select">联网<select value={searchMode} onChange={(event) => setSearchMode(event.target.value as SearchMode)}><option value="auto">自动</option><option value="on">开启</option><option value="off">关闭</option></select></label><a className="sheet-link" href="/settings" onClick={() => setMoreOpen(false)}>⚙ 会话设置与个性化</a><button className="sheet-link" onClick={() => { setMoreOpen(false); setSidebar(true); }}>☰ 对话列表</button><button className="sheet-link" onClick={newChat}>＋ 新对话</button></div>
+        {executionProfiles.some((profile) => profile.maintenance) && <details className="maintenance-profiles"><summary>维护中的历史配置</summary>{executionProfiles.filter((profile) => profile.maintenance).map((profile) => <p key={profile.id}><strong>{profile.name}</strong><span>{profile.displayStatus}</span></p>)}</details>}
+      </section>
+    </div>}
   </main>;
 }

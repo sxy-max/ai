@@ -6,9 +6,9 @@ import { fallbackFor, FALLBACK_CHAINS } from "../../lib/policy/fallbackGraph";
 
 /* ---------- WP18 ProviderHealth ---------- */
 
-test("内置状态：Luna 初始 region_unavailable（服务器视角）、Grok disabled", () => {
+test("Runtime Profile 状态：Luna 等待真实探测、Grok disabled", () => {
   const registry = new ProviderHealthRegistry();
-  assert.equal(registry.statusOf("gpt-5.6-luna"), "region_unavailable");
+  assert.equal(registry.statusOf("gpt-5.6-luna"), "available");
   assert.equal(registry.statusOf("grok-4.5"), "disabled");
   assert.equal(registry.statusOf("deepseek-v4-flash"), "available");
 });
@@ -54,31 +54,30 @@ test("availableModels 过滤 + snapshot", () => {
   const registry = new ProviderHealthRegistry();
   registry.record("deepseek-v4-flash", { status: "degraded", probedAt: Date.now() });
   const available = registry.availableModels(["deepseek-v4-flash", "deepseek-v4-pro", "grok-4.5", "gpt-5.6-luna"]);
-  assert.deepEqual(available, ["deepseek-v4-pro"]);
+  assert.deepEqual(available, ["deepseek-v4-pro", "gpt-5.6-luna"]);
   const snap = registry.snapshot();
   assert.equal(snap["grok-4.5"], "disabled");
 });
 
 /* ---------- WP19 FallbackGraph ---------- */
 
-test("复杂推理降级：pro 不可用 → flash（DeepSeek 系内降级，不随机换供应商）", () => {
+test("复杂推理降级：Luna 不可用 → Flash", () => {
   const result = fallbackFor({
     role: "reasoning",
-    failedModel: "deepseek-v4-pro",
+    failedModel: "gpt-5.6-luna",
     availableModels: ["glm-5.2", "deepseek-v4-flash", "qwen3.8-max"],
   });
   assert.equal(result.ok, true);
   if (result.ok) assert.equal(result.model, "deepseek-v4-flash");
 });
 
-test("Agent 降级：flash 不可用 → pro（tool execution）", () => {
+test("Agent 降级：flash 不可用时不回到旧 pro 配置", () => {
   const result = fallbackFor({
     role: "agent",
     failedModel: "deepseek-v4-flash",
     availableModels: ["kimi-k3", "deepseek-v4-pro"],
   });
-  assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.model, "deepseek-v4-pro");
+  assert.equal(result.ok, false);
 });
 
 test("Vision 降级：无 vision 模型可用 → 明确失败（不硬选无视觉模型）", () => {
@@ -101,6 +100,6 @@ test("capability-safe：available 但能力不足的模型被跳过", () => {
 });
 
 test("chat 降级链与 ModelPolicy 一致", () => {
-  assert.deepEqual(FALLBACK_CHAINS.chat, ["deepseek-v4-flash", "deepseek-v4-pro"]);
-  assert.deepEqual(FALLBACK_CHAINS.reasoning, ["deepseek-v4-pro", "deepseek-v4-flash"]);
+  assert.deepEqual(FALLBACK_CHAINS.chat, ["gpt-5.6-luna", "deepseek-v4-flash"]);
+  assert.deepEqual(FALLBACK_CHAINS.reasoning, ["gpt-5.6-luna", "deepseek-v4-flash"]);
 });

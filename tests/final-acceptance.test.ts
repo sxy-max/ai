@@ -33,6 +33,12 @@ before(async () => {
   ]);
   const { setAdapterOverride } = await import("../lib/sandbox/adapterOverride");
   const { FakeClaudeCodeAdapter } = await import("../lib/sandbox/fakeAdapter");
+  const { providerHealthRegistry } = await import("../lib/policy/providerHealth");
+  // The fake Claude Code adapter exercises the same directive path without a
+  // gateway. Mark the two runtime profiles healthy so no real probe is sent.
+  process.env.CLAUDE_RUNTIME_PROFILES_ENABLED = "deepseek-flash,gpt-luna";
+  providerHealthRegistry.record("deepseek-v4-flash", { status: "available", probedAt: Date.now() });
+  providerHealthRegistry.record("gpt-5.6-luna", { status: "available", probedAt: Date.now() });
   setAdapterOverride(new FakeClaudeCodeAdapter(process.env.WORKSPACES_ROOT));
 });
 

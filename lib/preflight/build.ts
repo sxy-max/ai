@@ -10,6 +10,8 @@ import { MCP_FOR_CAPABILITY, PROFILE_DEFAULTS, type DirectiveCapability, type Ex
 import { applyRules, type PreflightAttachment, type PreflightInput } from "./rules";
 import { resolveMainModel, type MainModelSelection } from "./models";
 import type { ProviderHealthRegistry } from "../policy/providerHealth";
+import { standardForTask } from "../content-standard";
+import { runtimeProfileIdForModel } from "../execution-profiles";
 
 export type BuildDirectiveInput = {
   goal: string;
@@ -100,11 +102,13 @@ export async function buildDirective(input: BuildDirectiveInput): Promise<Execut
   }
 
   const profileDefaults = PROFILE_DEFAULTS[verdict.profile];
+  const contentStandard = standardForTask(input.goal, taskType, verdict.deliveryContract.kind);
   return {
     taskType,
     goal: input.goal,
     capabilities,
     mainModel: selection.mainModel,
+    runtimeProfileId: runtimeProfileIdForModel(selection.mainModel),
     fallbackModels: selection.fallbackModels,
     mcpServers,
     tools,
@@ -115,6 +119,7 @@ export async function buildDirective(input: BuildDirectiveInput): Promise<Execut
     profile: verdict.profile,
     skills: selectRelevant(input.userSkills, input.goal),
     memory: selectRelevant(input.userMemory, input.goal),
+    ...(contentStandard ? { contentStandard } : {}),
     timeoutMs: profileDefaults.timeoutMs,
     maxAttempts: profileDefaults.maxAttempts,
     policySource: `Preflight:${verdict.reason}`,

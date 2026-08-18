@@ -88,15 +88,15 @@ test("简单文件任务 → 2 次修复尝试", () => {
 
 /* ---------- WP4 ModelPolicyEngine ---------- */
 
-test("普通问答 → 低成本稳定模型（flash 首选）", () => {
+test("普通问答 → Luna，失败时才回退 Flash", () => {
   const result = selectModel({ role: "chat" });
-  assert.equal(result.model, "deepseek-v4-flash");
+  assert.equal(result.model, "gpt-5.6-luna");
   assert.equal(result.fallbackTried.length, 0);
 });
 
-test("高难推理 → deepseek-v4-pro（reasoning model）", () => {
+test("高难推理 → GPT 5.6 Luna", () => {
   const result = selectModel({ role: "reasoning" });
-  assert.equal(result.model, "deepseek-v4-pro");
+  assert.equal(result.model, "gpt-5.6-luna");
 });
 
 test("文件 Agent → flash（tool execution 优先，非长推理）", () => {
@@ -111,9 +111,9 @@ test("Vision → minimax-m3（视觉模型只负责观察）", () => {
 
 test("capability-safe fallback：首选不可用 → 同角色降级链，不随机换模型", () => {
   const result = selectModel({ role: "reasoning", availableModels: ["glm-5.2", "deepseek-v4-flash"] });
-  // 链：deepseek-v4-pro → flash（2026-08-17 收敛后主链 DeepSeek 系）；glm-5.2 在池外
+  // 链：Luna → Flash；glm-5.2 在批准链外。
   assert.equal(result.model, "deepseek-v4-flash");
-  assert.ok(result.fallbackTried.includes("deepseek-v4-pro"));
+  assert.ok(result.fallbackTried.includes("gpt-5.6-luna"));
 });
 
 test("能力过滤：需求 vision 时无 vision 模型列表 → 明确无可用（不硬选）", () => {
@@ -124,7 +124,14 @@ test("能力过滤：需求 vision 时无 vision 模型列表 → 明确无可�
   assert.match(result.reason, /no capable model/);
 });
 
-test("配置覆盖：AGENT_MODEL 环境变量优先于默认链", () => {
+test("旧维护模型覆盖不会重新进入执行链", () => {
   const result = selectModel({ role: "agent", configured: { agent: "deepseek-v4-pro" } });
-  assert.equal(result.model, "deepseek-v4-pro");
+  assert.equal(result.model, "deepseek-v4-flash");
+  assert.ok(result.fallbackTried.includes("deepseek-v4-pro"));
+});
+
+test("显式空健康模型列表不会退回内置默认池", () => {
+  const result = selectModel({ role: "chat", availableModels: [] });
+  assert.equal(result.model, null);
+  assert.match(result.reason, /no capable model/);
 });

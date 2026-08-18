@@ -10,6 +10,12 @@ import { buildVisualContextBlock, describeImageBase64, modelSupportsVision, type
 import { personalizationSystemText, skillsSystemText } from "../../../lib/personalization";
 import { classifyTask } from "../../../lib/taskRouter";
 import { classifyUpstreamError, friendlyStreamError } from "../../../lib/modelErrors";
+import {
+  availableRuntimeModels,
+  executionProfileModel,
+  isExecutionProfileChoice,
+  probeExecutionProfiles,
+} from "../../../lib/execution-profiles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +25,11 @@ type Attachment = { name: string; mime: string; kind: "text" | "image"; text?: s
 type ClientMessage = { role: "user" | "assistant"; content: string; attachments?: Attachment[] };
 type ChatOptions = { temperature?: number | null; maxOutputTokens?: number | null; reasoningEffort?: "off" | "auto" | "low" | "medium" | "high" };
 type Body = {
-  provider: Provider;
-  model: string;
-  modelToken: string;
+  provider?: Provider;
+  model?: string;
+  modelToken?: string;
+  /** Claude Code execution channel chosen in settings; it never contains a secret. */
+  executionProfileId?: "auto" | "deepseek-flash" | "gpt-luna";
   messages: ClientMessage[];
   webContext?: string;
   urlContext?: string;
@@ -131,9 +139,10 @@ function parseAttachment(value: unknown) {
 
 function validateBody(value: unknown): Body {
   if (!isRecord(value)) throw new HttpError(400, "Request body must be an object");
-  if (value.provider !== "opencode-go" && value.provider !== "anthropic") throw new HttpError(400, "Invalid provider");
-  if (typeof value.model !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value.model)) throw new HttpError(400, "Invalid model");
-  if (typeof value.modelToken !== "string" || value.modelToken.length > 1_500) throw new HttpError(403, "Missing model access token");
+  if (value.provider != null && value.provider !== "opencode-go" && value.provider !== "anthropic") throw new HttpError(400, "Invalid provider");
+  if (value.model != null && (typeof value.model !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value.model))) throw new HttpError(400, "Invalid model");
+  if (value.modelToken != null && (typeof value.modelToken !== "string" || value.modelToken.length > 1_500)) throw new HttpError(403, "Invalid model access token");
+  if (value.executionProfileId != null && !isExecutionProfileChoice(value.executionProfileId)) throw new HttpError(400, "Invalid execution profile");
   if (value.visionCapability != null && value.visionCapability !== true && value.visionCapability !== false && value.visionCapability !== "unknown") {
     throw new HttpError(400, "Invalid vision capability");
   }
@@ -218,9 +227,10 @@ function validateBody(value: unknown): Body {
   }
 
   return {
-    provider: value.provider,
-    model: value.model,
-    modelToken: value.modelToken,
+    provider: value.provider ?? undefined,
+    model: value.model ?? undefined,
+    modelToken: value.modelToken ?? undefined,
+    executionProfileId: value.executionProfileId ?? undefined,
     messages,
     webContext,
     urlContext,
@@ -471,19 +481,29 @@ async function claudeCodeChat(body: Body): Promise<Response> {
   const userText = lastUser?.content || "";
   // 统一内容标准：解释/分析/知识类在 Claude Code 生成之前进入（不事后润色）。
   // 指令放在用户要求之前，避免长输入截断把标准切掉；纯代码/JSON/日志类问题不注入（detectSkill 不命中）。
-  const skillText = skillInstruction(detectSkill(body.messages), lastUserTextOf(body.messages));
-  const prompt = [skillText ? `[写作标准]\n${skillText}\n\n用户要求如下：` : "", userText].filter(Boolean).join("").slice(0, 6000);
+  const prompt = userText.slice(0, 6000);
   // Preflight Auto：主模型 + 按需 MCP（视觉问答挂 vision；研究挂 search）
-  let directive: { mainModel?: string; mcpServers?: string[] } | undefined;
-  try {
-    const { buildDirective } = await import("../../../lib/preflight/build");
-    const built = await buildDirective({
-      goal: prompt,
-      attachments: (lastUser?.attachments || []).map((a) => ({ kind: a.kind === "image" ? "image" : "text", mime: a.mime, name: a.name })),
-      configuredAgentModel: process.env.AGENT_MODEL?.trim() || undefined,
-    });
-    directive = { mainModel: built.mainModel, mcpServers: built.mcpServers };
-  } catch {}
+  const selectedProfile = body.executionProfileId && body.executionProfileId !== "auto" ? body.executionProfileId : undefined;
+  await probeExecutionProfiles();
+  const configuredAgentModel = executionProfileModel(selectedProfile);
+  if (selectedProfile && !configuredAgentModel) {
+    throw new Error("EXECUTION_PROFILE_UNAVAILABLE");
+  }
+  const { buildDirective } = await import("../../../lib/preflight/build");
+  const { providerHealthRegistry } = await import("../../../lib/policy/providerHealth");
+  const built = await buildDirective({
+    goal: prompt,
+    attachments: (lastUser?.attachments || []).map((a) => ({ kind: a.kind === "image" ? "image" : "text", mime: a.mime, name: a.name })),
+    health: providerHealthRegistry,
+    availableModels: await availableRuntimeModels(),
+    configuredAgentModel,
+  });
+  const directive = {
+    mainModel: built.mainModel,
+    runtimeProfileId: built.runtimeProfileId,
+    mcpServers: built.mcpServers,
+    contentStandard: built.contentStandard,
+  };
   const payload = {
     prompt,
     maxTurns: 20,
@@ -502,7 +522,7 @@ async function claudeCodeChat(body: Body): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      controller.enqueue(encodeEvent({ type: "meta", protocol: "chat", provider: "opencode-go" }));
+      controller.enqueue(encodeEvent({ type: "meta", protocol: "chat", provider: "anthropic" }));
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -571,8 +591,7 @@ export async function POST(request: Request) {
     }
   }
 
-  if (!verifyModelAccess(body.modelToken, body.provider, body.model)) return errorResponse("Model access token is invalid or expired; reload the model list", 403);
-  if (body.model.startsWith("mock-")) return mockStream(body.model);
+  if (body.model?.startsWith("mock-")) return mockStream(body.model);
   // 本 Goal：普通问答统一经 Claude Code Harness（轻量 Execution Profile）。
   // CLAUDE_CHAT_ENABLED=1（生产）时 chat 由容器内 Claude Code 执行，主模型 Auto。
   // 裸模型直连流（旧通道）仅当 CHAT_LEGACY_DIRECT=1 显式启用（本地开发/集成测试用
@@ -584,6 +603,8 @@ export async function POST(request: Request) {
       return errorResponse("Claude Code 问答通道不可用（file-agent 容器未就绪？）", 503);
     }
   }
+  if (!body.provider || !body.model || !body.modelToken) return errorResponse("Legacy direct chat requires a signed model selection", 400);
+  if (!verifyModelAccess(body.modelToken, body.provider, body.model)) return errorResponse("Model access token is invalid or expired; reload the model list", 403);
   if (process.env.CHAT_LEGACY_DIRECT !== "1") {
     return errorResponse("普通问答统一经 Claude Code Harness（CLAUDE_CHAT_ENABLED=1）；裸模型直连流仅限开发（CHAT_LEGACY_DIRECT=1）", 503);
   }
