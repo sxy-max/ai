@@ -954,7 +954,7 @@ a.artifact-card { text-decoration: none; color: inherit; }
 .conversation-shell .message.user .message-meta { justify-content: flex-end; }
 .conversation-shell .message-meta .msg-copy { margin-top: 0; }
 .conversation-shell .chat-composer-area {
-  position: static;
+  position: relative;
   inset: auto;
   flex: 0 0 auto;
   padding: 10px max(12px, calc((100% - 850px) / 2)) max(10px, env(safe-area-inset-bottom, 0px));
@@ -965,6 +965,36 @@ a.artifact-card { text-decoration: none; color: inherit; }
 .conversation-shell .chat-composer-area .footnote { display: none; }
 .conversation-shell .chat-composer-area .error.inline { margin: 0 4px 7px; }
 .conversation-shell .composer { width: 100%; }
+.jump-to-latest {
+  position: absolute;
+  right: max(14px, calc((100% - 820px) / 2));
+  bottom: calc(100% + 12px);
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 86%, #aab8ff);
+  border-radius: 15px;
+  color: #ecf0ff;
+  background: linear-gradient(145deg, rgba(51, 60, 99, .95), rgba(22, 27, 48, .92));
+  box-shadow: 0 12px 32px rgba(3, 6, 18, .38), inset 0 1px rgba(255, 255, 255, .16);
+  backdrop-filter: blur(16px);
+  z-index: 6;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.jump-to-latest::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 18%, rgba(151, 165, 255, .28), transparent 64%);
+  pointer-events: none;
+}
+.jump-to-latest svg { position: relative; z-index: 1; width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.jump-to-latest:hover { transform: translateY(-2px); border-color: #aeb9ff; box-shadow: 0 16px 38px rgba(3, 6, 18, .5), inset 0 1px rgba(255, 255, 255, .22); }
+.jump-to-latest:active { transform: translateY(0) scale(.94); }
+.jump-to-latest:focus-visible { outline: 2px solid #b8c1ff; outline-offset: 3px; }
 
 /* Secondary conversation controls live in a sheet, never in a permanent row. */
 .chat-sheet-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(4, 7, 12, .48); }
@@ -1002,6 +1032,7 @@ a.artifact-card { text-decoration: none; color: inherit; }
   .conversation-shell .messages { padding: 18px 14px 22px; }
   .conversation-shell .message.user .msg-parts { max-width: 88%; }
   .conversation-shell .chat-composer-area { padding: 8px 10px max(8px, env(safe-area-inset-bottom, 0px)); }
+  .jump-to-latest { right: 14px; bottom: calc(100% + 10px); width: 40px; height: 40px; border-radius: 14px; }
   .chat-sheet-backdrop { display: flex; align-items: flex-end; }
   .chat-more-sheet { position: relative; right: auto; top: auto; width: 100%; max-height: min(78dvh, 680px); border-radius: 16px 16px 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
 }

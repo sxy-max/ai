@@ -213,6 +213,7 @@ export default function Home() {
   const [executionProfiles, setExecutionProfiles] = useState<ExecutionProfile[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [error, setError] = useState("");
   const [sidebar, setSidebar] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -228,6 +229,7 @@ export default function Home() {
   const fileBusyRef = useRef(false);
   const filesRef = useRef<FileTaskInfo[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -301,7 +303,10 @@ export default function Home() {
     };
   }, [authed]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, searchBusy]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowJumpToLatest(false);
+  }, [messages, busy, searchBusy]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)); } catch {} }, [conversations, storageReady]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme })); } catch {} }, [searchMode, contextMode, temperature, maxOutputTokens, reasoningEffort, theme, storageReady]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(EXECUTION_PROFILE_KEY, executionProfileId); } catch {} }, [executionProfileId, storageReady]);
@@ -458,6 +463,17 @@ export default function Home() {
   const executionProfileLabel = executionProfileId === "auto"
     ? "Auto"
     : selectedExecutionProfile?.name || (executionProfileId === "gpt-luna" ? "GPT 5.6 Luna" : "DeepSeek V4 Flash");
+
+  function updateJumpToLatestVisibility(event: React.UIEvent<HTMLDivElement>) {
+    const surface = event.currentTarget;
+    setShowJumpToLatest(surface.scrollHeight - surface.scrollTop - surface.clientHeight > 96);
+  }
+
+  function jumpToLatest() {
+    const surface = messagesRef.current;
+    surface?.scrollTo({ top: surface.scrollHeight, behavior: "smooth" });
+    setShowJumpToLatest(false);
+  }
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -728,7 +744,7 @@ export default function Home() {
         <button className="icon-btn" onClick={() => setMoreOpen(true)} aria-label="更多会话操作">⋯</button>
       </header>
 
-      <div className="messages" data-testid="conversation-scroll" role="log" aria-live="polite">
+      <div ref={messagesRef} className="messages" data-testid="conversation-scroll" role="log" aria-live="polite" onScroll={updateJumpToLatestVisibility}>
         {messages.length === 0 && <div className="empty-state"><div className="hero-orb">AI</div><h2>从问题开始。</h2><p>对话、文件和联网能力会在需要时进入当前 Claude Code 执行。</p></div>}
         {messages.map((m) => <article key={m.id} className={`message ${m.role}`}>
           {(m.webUsed || m.urlUsed || m.visionUsed) ? <div className="chips">{m.webUsed && <span>◎ 搜索</span>}{m.urlUsed && <span>↗ URL</span>}{m.visionUsed && !busy && <span>▧ 视觉分析</span>}</div> : null}
@@ -742,6 +758,9 @@ export default function Home() {
 
       {E2E && <div data-testid="mock-mode-indicator" style={{ position: "fixed", top: 4, right: 8, fontSize: 10, color: "#7c8495", zIndex: 50 }}>E2E-MOCK</div>}
       <footer className={`chat-composer-area ${composerFocused ? "focused" : ""}`}>
+        {showJumpToLatest && <button className="jump-to-latest" type="button" data-testid="jump-to-latest" onClick={jumpToLatest} aria-label="回到最新消息" title="回到最新消息">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v13" /><path d="m6.75 11.5 5.25 5.25 5.25-5.25" /><path d="M7.25 20.5h9.5" /></svg>
+        </button>}
         {attachments.length > 0 && <div className="attachment-tray">{attachments.map((a) => <button key={a.id} onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))}>{a.kind === "image" ? "▧" : "▤"} {a.name}{a.originalChars ? ` · ${Math.round(a.originalChars / 1000)}k` : ""} <b>×</b></button>)}</div>}
         {error && <div className="error inline">{error}</div>}
         <div className="composer">

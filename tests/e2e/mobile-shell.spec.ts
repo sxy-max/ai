@@ -247,6 +247,17 @@ for (const vp of [{ name: "conversation-390", width: 390, height: 844 }, { name:
       const composerAfterFocus = await page.locator(".chat-composer-area").boundingBox();
       expect(composerAfterFocus!.y + composerAfterFocus!.height).toBeCloseTo(layout.shell.bottom, 0);
 
+      await page.locator('[data-testid="conversation-scroll"]').evaluate((surface) => {
+        surface.scrollTop = 0;
+        surface.dispatchEvent(new Event("scroll"));
+      });
+      const jumpToLatest = page.getByTestId("jump-to-latest");
+      await expect(jumpToLatest).toBeVisible();
+      await jumpToLatest.click();
+      await expect.poll(() => page.locator('[data-testid="conversation-scroll"]').evaluate((surface) =>
+        surface.scrollHeight - surface.scrollTop - surface.clientHeight
+      )).toBeLessThan(4);
+
       await page.getByLabel("更多会话操作").click();
       await expect(page.getByRole("dialog", { name: "会话设置" })).toBeVisible();
       await expect(page.locator(".sheet-select")).toContainText("联网");
