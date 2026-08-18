@@ -214,6 +214,7 @@ for (const vp of [{ name: "conversation-390", width: 390, height: 844 }, { name:
         const scroll = document.querySelector<HTMLElement>('[data-testid="conversation-scroll"]')!;
         return {
           shell, header, messages, composer, userParts,
+          shellPosition: getComputedStyle(document.querySelector<HTMLElement>(".conversation-shell")!).position,
           userBackground: userStyle?.backgroundColor || "transparent",
           messageScrollHeight: scroll.scrollHeight,
           messageClientHeight: scroll.clientHeight,
@@ -225,6 +226,7 @@ for (const vp of [{ name: "conversation-390", width: 390, height: 844 }, { name:
       });
       expect(layout.bottomNavCount).toBe(0);
       expect(layout.modelRows).toBe(0);
+      expect(layout.shellPosition).toBe("fixed");
       expect(layout.header.height).toBeLessThanOrEqual(70);
       expect(layout.messages.top).toBeCloseTo(layout.header.bottom, 0);
       expect(layout.messages.bottom).toBeCloseTo(layout.composer.top, 0);

@@ -276,23 +276,28 @@ export default function Home() {
     void authenticate(true);
   }, []);
 
-  // Mobile：聊天 shell 在鉴权完成后才挂载，必须在它出现时重新校正 visualViewport 高度。
+  // Mobile：仅在软键盘改变可视高度时收缩 shell。visualViewport 的 scroll
+  // 会在 textarea 获取焦点时触发；监听它会把页面滚离 composer。
   useLayoutEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const onViewportChange = () => {
+    const onViewportResize = () => {
       const shell = shellRef.current;
       if (!shell) return;
+      const keyboardOpen = window.innerHeight - vv.height > 120;
+      if (!keyboardOpen) {
+        shell.style.removeProperty("height");
+        shell.style.removeProperty("max-height");
+        return;
+      }
       const height = `${Math.max(200, vv.height)}px`;
       shell.style.height = height;
       shell.style.maxHeight = height;
     };
-    onViewportChange();
-    vv.addEventListener("resize", onViewportChange);
-    vv.addEventListener("scroll", onViewportChange);
+    onViewportResize();
+    vv.addEventListener("resize", onViewportResize);
     return () => {
-      vv.removeEventListener("resize", onViewportChange);
-      vv.removeEventListener("scroll", onViewportChange);
+      vv.removeEventListener("resize", onViewportResize);
     };
   }, [authed]);
 
