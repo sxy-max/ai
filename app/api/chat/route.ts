@@ -486,9 +486,9 @@ async function claudeCodeChat(body: Body): Promise<Response> {
   const selectedProfile = body.executionProfileId && body.executionProfileId !== "auto" ? body.executionProfileId : undefined;
   await probeExecutionProfiles();
   const configuredAgentModel = executionProfileModel(selectedProfile);
-  if (selectedProfile && !configuredAgentModel) {
-    throw new Error("EXECUTION_PROFILE_UNAVAILABLE");
-  }
+  // A browser may retain a manual choice made before its upstream became
+  // unavailable. Treat that stale choice as Auto so one dead Profile cannot
+  // make the whole conversation unusable; the profile picker is reset client-side.
   const { buildDirective } = await import("../../../lib/preflight/build");
   const { providerHealthRegistry } = await import("../../../lib/policy/providerHealth");
   const built = await buildDirective({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import MessageParts from "../../components/message/MessageParts";
 import { createAccumulator, accumulate, finalizeStatus, streamingStatus, sanitizeForUpstream } from "../../lib/message/lifecycle";
@@ -276,8 +276,8 @@ export default function Home() {
     void authenticate(true);
   }, []);
 
-  // Mobile：键盘弹出（visualViewport 收缩）时压缩 app-shell 高度，Composer 不被浏览器 UI/safe-area 长期遮挡
-  useEffect(() => {
+  // Mobile：聊天 shell 在鉴权完成后才挂载，必须在它出现时重新校正 visualViewport 高度。
+  useLayoutEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const onViewportChange = () => {
@@ -294,7 +294,7 @@ export default function Home() {
       vv.removeEventListener("resize", onViewportChange);
       vv.removeEventListener("scroll", onViewportChange);
     };
-  }, []);
+  }, [authed]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, searchBusy]);
   useEffect(() => { if (!storageReady) return; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)); } catch {} }, [conversations, storageReady]);
@@ -318,27 +318,51 @@ export default function Home() {
   async function authenticate(silent = true) {
     const authRunId = authRunRef.current + 1;
     authRunRef.current = authRunId;
+    let authenticated = false;
     try {
       const meRes = await fetch("/api/auth/me", { cache: "no-store" });
       if (authRunRef.current !== authRunId) return;
       if (meRes.status === 401) { router.replace("/login"); return; }
-      const modelResponse = await fetch("/api/models", { cache: "no-store" });
-      const data = await modelResponse.json().catch(() => ({}));
+      if (!meRes.ok) throw new Error(`auth check failed: ${meRes.status}`);
+      authenticated = true;
+
+      // 登录态已确认即可显示聊天；模型目录和 Runtime 探测属于后台增强，
+      // 不应把移动端输入框锁在“验证登录状态”页面上。
+      setAuthed(true);
+    } catch {
       if (authRunRef.current !== authRunId) return;
+      setAuthed(false);
+      return;
+    }
+
+    if (!authenticated || authRunRef.current !== authRunId) return;
+    try {
+      const [modelResponse, profileResponse] = await Promise.all([
+        fetch("/api/models", { cache: "no-store" }),
+        fetch("/api/execution-profiles", { cache: "no-store" }),
+      ]);
+      if (authRunRef.current !== authRunId) return;
+      const data = await modelResponse.json().catch(() => ({}));
       if (modelResponse.ok) {
         const available = Array.isArray(data.models) ? data.models as ModelInfo[] : [];
         setModels(available);
         setModel((current) => current || available.find((item) => item.supported)?.key || "");
       }
-      const profileResponse = await fetch("/api/execution-profiles", { cache: "no-store" });
       if (profileResponse.ok) {
         const profileData = await profileResponse.json().catch(() => ({}));
-        if (Array.isArray(profileData.profiles)) setExecutionProfiles(profileData.profiles as ExecutionProfile[]);
+        if (Array.isArray(profileData.profiles)) {
+          const profiles = profileData.profiles as ExecutionProfile[];
+          setExecutionProfiles(profiles);
+          // 清理旧浏览器缓存：不可用的手动 Profile 不应让所有新消息失败。
+          setExecutionProfileId((current) => {
+            if (current === "auto") return current;
+            const selected = profiles.find((profile) => profile.id === current);
+            return selected?.runtimeSelectable ? current : "auto";
+          });
+        }
       }
-      setAuthed(true);
     } catch {
-      if (authRunRef.current !== authRunId) return;
-      setAuthed(false);
+      // 登录态已经确认；目录/健康探测失败只保留空模型列表，聊天仍可走 Auto。
     }
   }
 
